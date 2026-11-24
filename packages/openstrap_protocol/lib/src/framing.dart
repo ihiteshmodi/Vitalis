@@ -1,0 +1,306 @@
+// Framing — WHOOP 4.0 protocol (Gen4 / "Harvard" envelope).
+//
+// Frame: [0xAA SOF][u16 LE size][crc8(size)][inner, padded /4][u32 LE CRC32]
+//   size = len(inner_padded) + 4  (counts the trailing CRC32)
+//
+// The reassembler MUST be length-based, NOT "reset on 0xAA" — sensor payloads
+// contain 0xAA and BLE notification boundaries land on them. See
+//
+// PURE Dart — no Flutter, no I/O.
+
+import 'dart:typed_data';
+import 'crc.dart';
+import 'constants.dart';
+import 'band.dart';
+
+/// A fully-parsed, validated frame envelope.
+class Frame {
+  final Uint8List inner; // unpadded? no — padded inner (type, seq, opcode, body…)
+
+  /// Header-integrity check result. Named `crc8Ok` for backward compatibility
+  /// (gen4 header uses crc8); on gen5 it carries the crc16-modbus result. Use
+  /// [headerCrcOk] for band-neutral code.
+  final bool crc8Ok;
+  final bool crc32Ok;
+
+  /// Whether the frame header advertises the frame revision this decoder was
+  /// written for (rev-1). The `inner[0]/[1]/[2]` = packetType/seq/opcode field
+  /// offsets below assume rev-1 layout; a rev-2 frame can still pass both CRCs
+  /// yet shift those fields, so [opcode] would silently return a body byte.
+  ///
+  /// gen5 carries an explicit revision byte at header[1] (0x01 on every real
+  /// strap frame — see [BandProfile.buildHeader]); a rev-2 frame stamps 0x02
+  /// there. gen4's 4-byte header has no revision byte, so it is always treated
+  /// as rev-1. Defaults true so directly-constructed frames and the entire
+  /// rev-1 path are unchanged; [parseFrame] sets it false for a gen5 frame
+  /// whose revision byte is not rev-1 — surfacing it instead of mis-decoding.
+  final bool frameRevOk;
+
+  /// Set only on a frame [FrameReassembler] gave up on because a lost
+  /// notification left it short and a complete frame was already buffered
+  /// behind it (see [FrameReassembler.giveUpTruncatedFrames]). Its `inner` is
+  /// just the bytes that did arrive, so [valid] is false.
+  ///
+  /// This says how the frame was lost, not whether it was. Every frame that is
+  /// not [valid] is a record that did not arrive intact — a notification lost
+  /// in the middle of a frame shows up as a plain CRC failure with this flag
+  /// false — so the trim decision must key on [valid] (or
+  /// [FrameReassembler.lostFrames]), never on this flag alone.
+  final bool truncated;
+
+  Frame(this.inner, this.crc8Ok, this.crc32Ok,
+      {this.frameRevOk = true, this.truncated = false});
+
+  /// Band-neutral alias for the header-integrity result.
+  bool get headerCrcOk => crc8Ok;
+
+  bool get valid => crc8Ok && crc32Ok;
+
+  /// Safe to read [packetType]/[seq]/[opcode] with the rev-1 field offsets:
+  /// CRCs pass AND the frame revision is one this decoder understands. Check
+  /// this (not just [valid]) before trusting [opcode] on an inbound frame.
+  ///
+  /// `valid && !decodable` means the bytes are INTACT and we just cannot read
+  /// this revision's field map — archive them, never drop them. Dropping is how
+  /// a firmware revision bump turns into a silent zero-record sync while the
+  /// band goes on trimming records we could have re-decoded later.
+  bool get decodable => valid && frameRevOk;
+  int get packetType => inner.isNotEmpty ? inner[0] : -1;
+  int get seq => inner.length > 1 ? inner[1] : -1;
+  int get opcode => inner.length > 2 ? inner[2] : -1;
+  Uint8List get body =>
+      inner.length > 3 ? Uint8List.sublistView(inner, 3) : Uint8List(0);
+}
+
+/// Zero-pad to a 4-byte boundary (CRC32 is computed over the padded form).
+Uint8List pad4(List<int> data) {
+  final padLen = (-data.length) % 4;
+  final out = Uint8List(data.length + (padLen < 0 ? padLen + 4 : padLen));
+  out.setRange(0, data.length, data);
+  return out;
+}
+
+/// Wrap inner content in a frame envelope. [profile] selects the generation's
+/// header shape; defaults to gen4 (WHOOP 4) so every existing caller is
+/// byte-for-byte unchanged. The padded inner + trailing CRC32 are identical
+/// across generations — only the header differs.
+Uint8List buildFrame(List<int> inner, {BandProfile profile = BandProfile.gen4}) {
+  final innerP = pad4(inner);
+  final declared = innerP.length + 4; // +4 = trailing CRC32
+  final header = profile.buildHeader(declared);
+  final c32 = crc32(innerP);
+
+  final out = BytesBuilder();
+  out.add(header);
+  out.add(innerP);
+  final tail = Uint8List(4)..buffer.asByteData().setUint32(0, c32, Endian.little);
+  out.add(tail);
+  return out.toBytes();
+}
+
+/// Parse a single complete frame. Returns null if too short / bad SOF.
+/// [profile] selects the generation's header shape (default gen4).
+Frame? parseFrame(Uint8List raw, {BandProfile profile = BandProfile.gen4}) {
+  final headerLen = profile.headerLen;
+  if (raw.length < headerLen + 4 || raw[0] != sof) return null;
+  final declared = profile.declaredLen(raw);
+  // declared has to be at least 4 (the trailing crc32) or the inner slice
+  // math below goes negative and sublistView throws instead of us just
+  // saying "not a valid frame" like the length checks above already do.
+  if (declared < 4) return null;
+  final headerCrcOk = profile.headerCrcValid(raw);
+  final innerStart = headerLen;
+  final total = headerLen + declared;
+  if (raw.length < total) return null;
+  // inner = raw[headerLen : headerLen + declared - 4]
+  final inner = Uint8List.sublistView(raw, innerStart, innerStart + declared - 4);
+  final storedBd =
+      raw.buffer.asByteData(raw.offsetInBytes + innerStart + declared - 4, 4);
+  final stored = storedBd.getUint32(0, Endian.little);
+  // gen5 header[1] is the frame-revision byte (rev-1 = 0x01). A rev-2 frame can
+  // pass both CRCs but shifts the inner field offsets, so flag it rather than
+  // let the rev-1 getters return a body byte as the opcode. gen4 has no such
+  // byte and is always rev-1.
+  final frameRevOk = !profile.isGen5 || raw[1] == revision1;
+  return Frame(Uint8List.fromList(inner), headerCrcOk, stored == crc32(inner),
+      frameRevOk: frameRevOk);
+}
+
+/// Length-based reassembler. feed() returns every complete Frame it can carve
+/// out of the running buffer. [profile] selects the generation's header shape;
+/// defaults to gen4 so the WHOOP 4 path is unchanged. Construct ONE per
+/// BLE session (a session speaks one generation).
+class FrameReassembler {
+  final List<int> _buf = [];
+  final BandProfile profile;
+  int _resyncs = 0;
+  int _truncations = 0;
+  int _lostFrames = 0;
+
+  /// Whether a frame left short by a lost notification is given up as soon as
+  /// a complete frame passing both CRCs is buffered behind it.
+  ///
+  /// Off by default, and only safe to turn on for a caller that refuses to
+  /// trim any offload burst in which [lostFrames] moved. With it off, the
+  /// HISTORY_END the band sends after a burst whose last frame lost a
+  /// notification stays stuck behind that frame: nothing is ACKed, the idle
+  /// watchdog abandons the burst, and the band offers the record again. With
+  /// it on, that END is delivered — and a caller that ACKs it trims a record
+  /// that exists nowhere else.
+  final bool giveUpTruncatedFrames;
+
+  /// Number of frames given up as truncated (each emitted with
+  /// [Frame.truncated]). Always 0 unless [giveUpTruncatedFrames] is on. A
+  /// subset of [lostFrames]; use that for the trim decision.
+  int get truncations => _truncations;
+
+  /// Number of frames emitted that are not [Frame.valid]: a payload CRC
+  /// failure (including a notification lost in the middle of a frame) or a
+  /// frame given up as truncated. Each one is a record that did not arrive
+  /// intact. A caller that saw this move during an offload burst must not ACK
+  /// that burst's HISTORY_END, whichever way the frame was lost, or the band
+  /// trims records that were never banked. Bytes skipped by a resync never
+  /// become a frame at all, so watch [resyncs] alongside this.
+  int get lostFrames => _lostFrames;
+
+  /// Number of times the reassembler skipped a byte because the envelope did
+  /// not hold up (bad SOF, implausible length, or a length field whose crc8
+  /// did not match). Callers use this to detect a degraded link — a bad
+  /// length is discarded here, so it never reaches [Frame.valid].
+  int get resyncs => _resyncs;
+
+  FrameReassembler(
+      {this.profile = BandProfile.gen4, this.giveUpTruncatedFrames = false});
+
+  List<Frame> feed(List<int> chunk) {
+    final out = <Frame>[];
+    _buf.addAll(chunk);
+
+    bool resync() {
+      _resyncs++;
+      // Find next SOF after index 0.
+      int nxt = -1;
+      for (int i = 1; i < _buf.length; i++) {
+        if (_buf[i] == sof) {
+          nxt = i;
+          break;
+        }
+      }
+      if (nxt < 0) {
+        _buf.clear();
+        return false;
+      }
+      _buf.removeRange(0, nxt);
+      return true;
+    }
+
+    final headerLen = profile.headerLen;
+    while (_buf.length >= headerLen + 4) {
+      if (_buf[0] != sof) {
+        if (!resync()) break;
+        continue;
+      }
+      final declared = profile.declaredLen(_buf); // u16 LE
+      final total = headerLen + declared;
+      if (declared < 4 || total > 4096) {
+        // implausible length → spurious SOF
+        if (!resync()) break;
+        continue;
+      }
+      // The header integrity check (crc8 on gen4, crc16-modbus on gen5)
+      // protects the length field and nothing else, so check it before
+      // acting on `declared`. Skipping this consumes up to 4092 bytes of
+      // good stream on a single corrupted length byte — records the band is
+      // about to trim from flash and will not send again. Must go through
+      // `profile.headerCrcValid` (not a bare gen4 crc8), or every gen5 frame
+      // fails this guard and the reassembler never gets past resync.
+      if (_buf.length < headerLen || !profile.headerCrcValid(_buf)) {
+        if (!resync()) break;
+        continue;
+      }
+      if (_buf.length < total) {
+        // A lost notification leaves this frame short, and the band sends
+        // HISTORY_END and then waits for the ACK — so no further bytes come
+        // to complete it, and the END sits inside the pending span until a
+        // watchdog aborts the burst. Holding it there is what keeps the band
+        // from trimming the lost record, so the give-up below is opt-in (see
+        // [giveUpTruncatedFrames]).
+        //
+        // A complete frame passing both CRCs inside the span means this one
+        // was truncated: give it up and resume there. Emitted as a CRC failure
+        // and counted in [lostFrames] so the caller can refuse to trim the
+        // burst the END closes. A payload that happened to contain a whole
+        // valid frame would need both an 8-bit and a 32-bit CRC to match by
+        // chance.
+        if (!giveUpTruncatedFrames) break; // wait for the rest of this frame
+        final next = _completeFrameWithin(headerLen);
+        if (next < 0) break; // wait for the rest of this frame
+        out.add(Frame(
+            Uint8List.fromList(_buf.sublist(headerLen, next)), true, false,
+            truncated: true));
+        _resyncs++;
+        _truncations++;
+        _lostFrames++;
+        _buf.removeRange(0, next);
+        continue;
+      }
+      final frame =
+          parseFrame(Uint8List.fromList(_buf.sublist(0, total)), profile: profile);
+      if (frame != null) out.add(frame);
+      if (frame != null && !frame.valid) _lostFrames++;
+      if (frame != null && !frame.crc32Ok) {
+        // The length field is covered only by the header check — 8 bits on
+        // gen4 — so roughly 1 in 254 corrupt length pairs still passes it. A
+        // payload CRC32 failure means `declared` itself cannot be trusted, and
+        // consuming it swallows every frame packed in behind this one: a single
+        // corrupted length field costs up to 4090 bytes of good stream, leaving
+        // one CRC failure as the only trace while the band goes on to trim
+        // records we never banked. Resync instead of stepping over it.
+        //
+        // The frame is still emitted above, so corruption accounting sees it;
+        // `valid` is false, so nothing ingests it as records.
+        if (!resync()) break;
+        continue;
+      }
+      _buf.removeRange(0, total);
+      // skip inter-record null padding
+      int i = 0;
+      while (i < _buf.length && _buf[i] == 0x00) {
+        i++;
+      }
+      if (i > 0) _buf.removeRange(0, i);
+    }
+    if (_buf.length > 8192) _buf.clear(); // safety: never grow unbounded
+    return out;
+  }
+
+  /// Offset of the first SOF after the pending frame's header that starts a
+  /// frame which is fully buffered and passes both CRCs, or -1.
+  ///
+  /// The scan starts past the header: that header already passed its check,
+  /// and its crc8 byte is 0xAA for about 1 in 256 lengths, so starting inside
+  /// it can match a frame at an offset shorter than the header and the caller's
+  /// payload slice runs backwards.
+  int _completeFrameWithin(int headerLen) {
+    for (int k = headerLen; k + headerLen + 4 <= _buf.length; k++) {
+      if (_buf[k] != sof) continue;
+      final header = _buf.sublist(k, k + headerLen);
+      final declared = profile.declaredLen(header);
+      if (declared < 4 || headerLen + declared > 4096) continue;
+      if (!profile.headerCrcValid(header)) continue;
+      final end = k + headerLen + declared;
+      if (end > _buf.length) continue;
+      final f = parseFrame(Uint8List.fromList(_buf.sublist(k, end)),
+          profile: profile);
+      if (f != null && f.valid) return k;
+    }
+    return -1;
+  }
+
+  void reset() {
+    _buf.clear();
+    _resyncs = 0;
+    _truncations = 0;
+    _lostFrames = 0;
+  }
+}

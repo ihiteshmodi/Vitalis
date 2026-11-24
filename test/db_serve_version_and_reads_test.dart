@@ -17,7 +17,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:yaml/yaml.dart';
 
 import 'package:openstrap_edge/compute/derivation_engine.dart'
     show kAlgoVersion, kAnalyticsPin, kProtocolPin;
@@ -43,40 +42,24 @@ void main() {
   // at runtime — the only place it can be caught is here, where the pin and the
   // version constant have to agree. Repin, and this goes red on the line above
   // kAlgoVersion.
-  test('the sibling pins match the SHAs kAlgoVersion was derived against', () {
-    final deps =
-        (loadYaml(File('pubspec.yaml').readAsStringSync())
-            as Map)['dependencies'] as Map;
-    String ref(String pkg) => ((deps[pkg] as Map)['git'] as Map)['ref'] as String;
-
+  test('the vendored sibling SHAs match the pins kAlgoVersion was derived against', () {
+    // The siblings are vendored under packages/ (no git metadata), so
+    // packages/PINS.txt is what records which upstream commit each copy came
+    // from. A repin must move the constants and this file together, or every
+    // day already derived at this version is served as if it came from the
+    // new analytics.
+    final pins = <String, String>{};
+    for (final line in File('packages/PINS.txt').readAsLinesSync()) {
+      final parts = line.trim().split(RegExp(r'\s+'));
+      if (line.trim().startsWith('#') || parts.length != 2) continue;
+      pins[parts[0]] = parts[1];
+    }
     const why =
         'sibling repinned without visiting kAlgoVersion. bump it and say what '
         'moved, or every day already derived at this version is served as if '
         'it came from the new analytics';
-    expect(ref('openstrap_analytics'), kAnalyticsPin, reason: why);
-    expect(ref('openstrap_protocol'), kProtocolPin, reason: why);
-
-    // AND THE LOCK, which is the file that actually decides what a build
-    // resolves. `pubspec.yaml` and the constants agreeing while the lock
-    // trails behind is a PARTIAL repin — the exact failure mode the repin
-    // comments promise this test catches, and it did not until it read this
-    // file. `resolved-ref` too: `ref` alone can name a moved branch.
-    final locked =
-        (loadYaml(File('pubspec.lock').readAsStringSync())
-            as Map)['packages'] as Map;
-    String lockRef(String pkg, String field) =>
-        ((locked[pkg] as Map)['description'] as Map)[field] as String;
-
-    const whyLock =
-        'pubspec.lock disagrees with pubspec.yaml and the pin constants — a '
-        'partial repin. Move all three together, or a build resolves a '
-        'sibling nobody reasoned about';
-    for (final field in const ['ref', 'resolved-ref']) {
-      expect(lockRef('openstrap_analytics', field), kAnalyticsPin,
-          reason: whyLock);
-      expect(lockRef('openstrap_protocol', field), kProtocolPin,
-          reason: whyLock);
-    }
+    expect(pins['openstrap_analytics'], kAnalyticsPin, reason: why);
+    expect(pins['openstrap_protocol'], kProtocolPin, reason: why);
   });
 
   const name = 'db_serve_version_test.db';

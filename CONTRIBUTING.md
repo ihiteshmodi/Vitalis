@@ -93,16 +93,9 @@ flutter run --dart-define-from-file=.env
 Quit the official WHOOP app before pairing — Bluetooth only lets one app own the
 band at a time.
 
-For local work across all three packages at once, create a `pubspec_overrides.yaml`
-(it's gitignored) pointing at your sibling checkouts:
-
-```yaml
-dependency_overrides:
-  openstrap_protocol:
-    path: ../protocol
-  openstrap_analytics:
-    path: ../analytics
-```
+The protocol and analytics packages live in this repo under `packages/`
+(`openstrap_protocol`, `openstrap_analytics`) and are resolved as local path
+dependencies. Edit them in place; no sibling checkouts or overrides are needed.
 
 ## Tests
 

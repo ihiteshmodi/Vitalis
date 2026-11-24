@@ -1,0 +1,4 @@
+# Upstream commits these vendored copies were taken from. Keep in step with
+# kAnalyticsPin / kProtocolPin in lib/compute/derivation_engine.dart.
+openstrap_analytics a438df40b38a4586a52a68ab7e1c100fca111ccd
+openstrap_protocol fbadb5bd055965d9400e266d6cf42748992ba950

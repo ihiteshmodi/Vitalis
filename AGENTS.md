@@ -19,10 +19,10 @@ user data. Network use is limited to OTA update pointers, opt-in
 telemetry/Crashlytics, and BYOK LLM calls (or the user's ChatGPT sign-in,
 whose OAuth calls go to auth.openai.com).
 
-Three sibling repos, strict separation — push work to the right one:
-- `OpenStrap/protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
-- `OpenStrap/analytics` — metrics: HRV, sleep staging, readiness, strain.
-- `OpenStrap/edge` (**this repo**) — flows, BLE link management, storage, UI.
+Three repos, strict separation — push work to the right one. Protocol and analytics are vendored into this repo under `packages/`, so this repo is self-contained:
+- `packages/openstrap_protocol` — bytes: GATT, framing, CRC, opcodes, record decode.
+- `packages/openstrap_analytics` — metrics: HRV, sleep staging, readiness, strain.
+- `edge` (**this repo**) — flows, BLE link management, storage, UI.
 
 New opcode/record → protocol. New metric → analytics. New screen/flow/table →
 edge. A PR implementing a metric inside `edge/lib/compute` is in the wrong repo
@@ -235,13 +235,11 @@ rode analytics v42 into 0.9.13; a PR bumped `kAlgoVersion` while the lock still
 pinned the pre-fix analytics commit, requiring a manual merge-order gate; and
 `0.9.17+1` shipped versionCode 1 → `INSTALL_FAILED_VERSION_DOWNGRADE`, making
 the release uninstallable.
-`pubspec_overrides.yaml` redirects siblings to `../analytics` / `../protocol` and
-is gitignored — committing a path override fails CI `flutter pub get` (exit 66).
-The tracked `pubspec.lock` records `source: git` + `resolved-ref` for both
-siblings, and `.github/scripts/check_sibling_pins.sh` fails CI if it ever
-records `path`. `pubspec.yaml` stays the source of truth. `version:` must
-always keep its `+BUILD` suffix, and the iOS widget/watch
-`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped manually and drift.
+Protocol and analytics are now vendored under `packages/` and resolved as path
+dependencies, so there are no sibling pins or overrides to drift. `pubspec.yaml`
+stays the source of truth. `version:` must always keep its `+BUILD` suffix, and
+the iOS widget/watch `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped
+manually and drift.
 
 ### 4.10 Duplicated / inconsistent values across screens
 Today showed strain/sleep/stress twice; a week-load wheel duplicated the strain

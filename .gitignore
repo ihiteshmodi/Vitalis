@@ -119,3 +119,7 @@ docs/internal/
 payload*.json
 
 MULTIDEVICE_PROGRESS.md
+
+# Local-only agent skills and planning notes; never commit.
+/.agents/
+/stuff_to_build/

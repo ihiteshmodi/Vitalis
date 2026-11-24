@@ -1,0 +1,891 @@
+// Nap detector — synthetic known-answer tests.
+//
+// The regime under test is the one the NIGHT detector deliberately rejects:
+// `AdvancedSleepStager.minSleepMin = 60` exists so "daytime naps and stray
+// still-blocks stay excluded" (advanced_stager.dart:327), and anything centred
+// 11:00–20:00 local additionally needs ≥90 min plus an HR dip. Reusing that
+// detector for naps made the canonical 20–45 min afternoon nap structurally
+// undetectable. These tests pin the new, purpose-built path.
+import 'dart:math' as math;
+
+import 'package:test/test.dart';
+import 'package:openstrap_analytics/src/onehz/types.dart';
+import 'package:openstrap_analytics/src/onehz/sleep/nap.dart';
+
+/// A synthetic day at 1 Hz. Timestamps are `i * 1000` ms, so absolute epoch
+/// seconds equal the array index — which keeps the `[startSec, endSec]` span
+/// arguments (off-wrist, charging) readable in tests.
+class _Day {
+  final accel = <AccelSample>[];
+  final hr = <double>[];
+  int _i = 0;
+
+  int get cursor => _i;
+
+  /// Advance the CLOCK without emitting samples — a pruning / sync hole. The
+  /// substrate is a positional array, so the samples either side of this are
+  /// adjacent indices despite being [minutes] apart in wall time.
+  void gap(int minutes) => _i += minutes * 60;
+
+  /// Wrist in motion: a SMOOTH angular sweep of up to ~14°/s.
+  ///
+  /// Deliberately smooth rather than a per-second square wave — van Hees runs
+  /// a 5 s rolling median, which erases an alternation between two values
+  /// entirely and would make "active" read as perfectly still.
+  void active(int minutes, {double bpm = 82}) {
+    for (var s = 0; s < minutes * 60; s++, _i++) {
+      final deg = 45 + 35 * math.sin(_i * 0.4);
+      final rad = deg * math.pi / 180;
+      accel.add(AccelSample(_i * 1000.0, math.cos(rad), 0, math.sin(rad)));
+      hr.add(bpm);
+    }
+  }
+
+  /// A block the band never decoded gravity for: the edge hands these over as
+  /// exact (0,0,0) with `valid: false` (HR decoded, gravity did not). HR is
+  /// still real. This is the shape that used to read as perfect immobility.
+  void unmeasuredAccel(int minutes, {double bpm = 60}) {
+    for (var s = 0; s < minutes * 60; s++, _i++) {
+      accel.add(AccelSample(_i * 1000.0, 0, 0, 0, valid: false));
+      hr.add(bpm);
+    }
+  }
+
+  /// A motionless block at one fixed orientation.
+  /// `bpm <= 0` writes an HR gap — the substrate's own "no reading" encoding,
+  /// which is what off-wrist and dropout actually look like.
+  void still(int minutes, {double bpm = 54}) {
+    for (var s = 0; s < minutes * 60; s++, _i++) {
+      accel.add(AccelSample(_i * 1000.0, 0, 0, 1));
+      hr.add(bpm);
+    }
+  }
+}
+
+void main() {
+  group('detectNaps — the 20–60 min regime the night detector rejects', () {
+    test('a 30-minute nap is detected', () {
+      final d = _Day()
+        ..active(120)
+        ..still(30)
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.present, isTrue, reason: 'ran with ample data');
+      expect(m.value, hasLength(1),
+          reason: 'exactly one still, HR-dipped block in the day');
+      final nap = m.value!.single;
+      // Tight on purpose. The van Hees rule marks the second that STARTS a
+      // sustained-still window, so the last `sustainedMin` of any still block
+      // is never itself marked immobile — a naive bout end under-reports every
+      // nap by a flat 5 min. This tolerance fails unless the tail is recovered
+      // from the actual angle data.
+      expect(nap.tstSec, closeTo(30 * 60, 90),
+          reason: 'a 30 min nap should report ~30 min ASLEEP, not 25');
+      expect(nap.tibSec, greaterThanOrEqualTo(nap.tstSec),
+          reason: 'time in bed can never be less than time asleep');
+      expect(nap.confidence, inInclusiveRange(0.2, 0.85));
+    });
+
+    test('a 20-minute nap is detected', () {
+      final d = _Day()
+        ..active(90)
+        ..still(20)
+        ..active(90);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(1));
+      expect(m.value!.single.tstSec, closeTo(20 * 60, 90));
+    });
+
+    test('a 12-minute rest is below the floor and is not a nap', () {
+      final d = _Day()
+        ..active(90)
+        ..still(12)
+        ..active(90);
+
+      expect(detectNaps(d.accel, d.hr).value, isEmpty);
+    });
+
+    test('two separate naps are reported separately, not merged', () {
+      final d = _Day()
+        ..active(60)
+        ..still(20)
+        ..active(60)
+        ..still(25)
+        ..active(60);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(2), reason: 'a 60 min gap is not an arousal');
+      expect(m.value![0].tstSec, closeTo(20 * 60, 90));
+      expect(m.value![1].tstSec, closeTo(25 * 60, 90));
+    });
+
+    test('a brief arousal is bridged, and costs TST but not TIB', () {
+      final d = _Day()
+        ..active(90)
+        ..still(20)
+        ..active(2) // 2 min arousal — shorter than the 5 min bridge
+        ..still(20)
+        ..active(90);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(1), reason: 'one nap with an arousal in it');
+      final nap = m.value!.single;
+      expect(nap.tibSec, closeTo(42 * 60, 120), reason: '20 + 2 + 20 in bed');
+      expect(nap.tstSec, lessThan(nap.tibSec),
+          reason: 'the arousal is time in bed but NOT time asleep');
+      expect(nap.efficiency, lessThan(1.0));
+    });
+  });
+
+  group('detectNaps — false-positive rejection', () {
+    test('still but with no HR dip is desk work, not a nap', () {
+      final d = _Day()
+        ..active(90, bpm: 80)
+        ..still(40, bpm: 80) // motionless, but HR never drops
+        ..active(90, bpm: 80);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, isEmpty);
+      expect(m.note, contains('no HR dip'),
+          reason: 'the rejection reason must be visible, not silent');
+    });
+
+    test('a SEDENTARY DAY is not eight naps — sedentary wake stays in the '
+        'awake baseline', () {
+      // THE REGRESSION. The baseline once excluded every detected bout, which
+      // removed all of the day's still time and left the AMBULATORY HR median
+      // in its place. Every motionless block then cleared `medHr > baseline *
+      // napRestingHrMult` on nothing but the ordinary sit/walk HR difference:
+      // this exact fixture returned EIGHT naps totalling 199 minutes, each at
+      // confidence 0.85 — the cap — for a day nobody napped on.
+      //
+      // The test above cannot catch it: it uses bpm 80 for BOTH its active and
+      // still segments, so active and sedentary HR are identical and the
+      // baseline cannot be inflated. The contrast IS the bug, so it has to be
+      // in the fixture.
+      final d = _Day();
+      for (var b = 0; b < 8; b++) {
+        d
+          ..active(6, bpm: 96) // walking
+          ..still(25, bpm: 72); // at the desk — awake, just not moving
+      }
+      d.active(60, bpm: 96);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, isEmpty,
+          reason: 'sitting still at 72 bpm on a day you walk at 96 is not a '
+              'nap; keeping the still seconds puts the median at 72, and '
+              '0.95 x 72 = 68.4 < 72 rejects every block');
+      expect(m.note, contains('no HR dip'));
+    });
+
+    test('the same day at a 10% HR contrast is also not a nap', () {
+      // The failure did not need a dramatic difference — 84 vs 76 bpm, which is
+      // an unremarkable sit-versus-walk gap, produced all eight at 0.84.
+      final d = _Day();
+      for (var b = 0; b < 8; b++) {
+        d
+          ..active(6, bpm: 84)
+          ..still(25, bpm: 76);
+      }
+      d.active(60, bpm: 84);
+
+      expect(detectNaps(d.accel, d.hr).value, isEmpty);
+    });
+
+    test('an off-wrist span is rejected even though it is perfectly still', () {
+      final d = _Day()
+        ..active(90)
+        ..still(40) // band on a table: still, and "HR" looks restful
+        ..active(90);
+      final offStart = 90 * 60, offEnd = offStart + 40 * 60;
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        wristOff: [
+          [offStart, offEnd]
+        ],
+      );
+
+      expect(m.value, isEmpty);
+      expect(m.note, contains('off-wrist'));
+    });
+
+    test('a charging/workout exclusion span is rejected', () {
+      final d = _Day()
+        ..active(90)
+        ..still(40)
+        ..active(90);
+      final exStart = 90 * 60, exEnd = exStart + 40 * 60;
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        exclude: [
+          [exStart, exEnd]
+        ],
+      );
+
+      expect(m.value, isEmpty);
+    });
+
+    test('overlapping off-wrist spans count their union, not their sum', () {
+      // Two spans covering the SAME 12 minutes of a 40-min nap. That is 30% of
+      // the bout contradicted, under the 50% rejection bar, so the nap stands.
+      // Summing the spans independently scores it 60% and throws the nap away —
+      // and drives `corroborated` to 0 for any bout that survives. The band's
+      // own toggle events do not overlap today, so this pins the contract for
+      // every other caller rather than a live symptom.
+      final d = _Day()
+        ..active(90)
+        ..still(40)
+        ..active(90);
+      final napStart = 90 * 60;
+      final dupStart = napStart + 5 * 60, dupEnd = dupStart + 12 * 60;
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        wristOff: [
+          [dupStart, dupEnd],
+          [dupStart, dupEnd],
+        ],
+      );
+
+      expect(m.present, isTrue);
+      expect(m.value, hasLength(1),
+          reason: 'the same 12 minutes listed twice is still 12 minutes');
+    });
+
+    test('thin HR coverage abstains for that bout rather than guessing', () {
+      final d = _Day()
+        ..active(90)
+        ..still(40, bpm: 0) // HR gap throughout — nothing to corroborate with
+        ..active(90);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, isEmpty, reason: 'never assert sleep without evidence');
+      expect(m.note, contains('unverifiable'));
+    });
+
+    test('a block longer than 6 h is not a nap', () {
+      final d = _Day()
+        ..active(60)
+        ..still(7 * 60)
+        ..active(60);
+
+      expect(detectNaps(d.accel, d.hr).value, isEmpty);
+    });
+
+    test('the main sleep window is carved out', () {
+      final d = _Day()
+        ..active(60)
+        ..still(120)
+        ..active(60);
+      final start = 60 * 60, end = start + 120 * 60;
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        mainSleep: SleepWindowSpan(start, end),
+      );
+
+      expect(m.present, isTrue);
+      expect(m.value, isEmpty, reason: 'the only block IS the main sleep');
+    });
+
+    test('a fragment that continues the night is not booked as a nap', () {
+      // REGRESSION. The night detector drops a second short pre-dawn tail once
+      // its one-shot night-tail exemption is used, so the main window it hands
+      // over ends before the band shows the user was up. The index-overlap
+      // check let that dropped tail through, and it came back as a 6 AM "nap"
+      // at the 0.85 confidence cap.
+      for (final arousal in [12, 30, 60]) {
+        final d = _Day()
+          ..active(180, bpm: 80)
+          ..still(420, bpm: 55) // the night the main window covers
+          ..active(arousal, bpm: 72)
+          ..still(42, bpm: 56) // the dropped tail
+          ..active(600, bpm: 80);
+        final start = 180 * 60, end = start + 420 * 60;
+
+        final m = detectNaps(
+          d.accel,
+          d.hr,
+          mainSleep: SleepWindowSpan(start, end),
+        );
+
+        expect(m.present, isTrue);
+        expect(m.value, isEmpty,
+            reason: 'a $arousal-min arousal sits inside the night\'s '
+                'continuation gap, so the bout after it is the same night');
+        expect(m.note, contains('continuing the main sleep'));
+      }
+    });
+
+    test('a long still block right after waking stays in the awake baseline',
+        () {
+      // REGRESSION. Treating every still bout that starts within the night's
+      // continuation gap as night pulled a 5-hour morning desk block out of the
+      // awake-HR pool. With only walking HR left, a 40-min awake sit at 75 bpm
+      // cleared the dip gate and became a nap, and the note called the desk
+      // block "continuing the main sleep".
+      for (final wake in [10, 60]) {
+        final d = _Day()
+          ..active(60, bpm: 85)
+          ..still(420, bpm: 55) // the night the main window covers
+          ..active(wake, bpm: 85)
+          ..still(300, bpm: 77) // morning desk work, awake
+          ..active(90, bpm: 80)
+          ..still(40, bpm: 75) // an awake sit
+          ..active(90, bpm: 80);
+        final start = 60 * 60, end = start + 420 * 60;
+
+        final m = detectNaps(
+          d.accel,
+          d.hr,
+          mainSleep: SleepWindowSpan(start, end),
+        );
+
+        expect(m.present, isTrue);
+        expect(m.value, isEmpty,
+            reason: 'nobody napped; the desk block anchors the awake baseline '
+                '($wake min after waking)');
+        expect(m.note, isNot(contains('continuing the main sleep')));
+      }
+    });
+
+    test('a nap well clear of the night is still a nap', () {
+      final d = _Day()
+        ..active(180, bpm: 80)
+        ..still(420, bpm: 55)
+        ..active(180, bpm: 80) // three hours up — past any continuation
+        ..still(40, bpm: 56)
+        ..active(300, bpm: 80);
+      final start = 180 * 60, end = start + 420 * 60;
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        mainSleep: SleepWindowSpan(start, end),
+      );
+
+      expect(m.value, hasLength(1));
+    });
+  });
+
+  group('detectNaps — honest absence', () {
+    test('too little data is absent, never an empty list', () {
+      final m = detectNaps(const <AccelSample>[], const <double>[]);
+
+      expect(m.present, isFalse);
+      expect(m.value, isNull, reason: 'absent and "found none" differ');
+      expect(m.confidence, 0);
+      expect(m.tier, Tier.estimate);
+      expect(m.note, contains('too little data'));
+    });
+
+    test('a day with no awake HR is absent, not zero naps', () {
+      final d = _Day()
+        ..active(90, bpm: 0)
+        ..still(30, bpm: 0)
+        ..active(90, bpm: 0);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.present, isFalse,
+          reason: 'no baseline to judge against — abstain');
+      expect(m.note, contains('awake daytime HR'));
+    });
+
+    test('too few awake HR samples abstains rather than setting a threshold',
+        () {
+      // Only ~2 min of awake HR in the whole day. A median over that is not a
+      // baseline, and every nap verdict hangs off it.
+      final d = _Day()
+        ..active(2, bpm: 80)
+        ..active(120, bpm: 0)
+        ..still(30)
+        ..active(120, bpm: 0);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.present, isFalse);
+      expect(m.note, contains('need'));
+    });
+
+    test('a judged day holding no nap is an EMPTY list, not absent', () {
+      final d = _Day()..active(240);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.present, isTrue, reason: 'we did judge this day');
+      expect(m.value, isEmpty);
+    });
+  });
+
+  group('detectNaps — boundary safety', () {
+    test('a bout still running at the record end is DEFERRED, not emitted', () {
+      // This is the phantom-nap bug: with a 3 h buffer past midnight, the
+      // first hours of TONIGHT'S sleep were emitted as a multi-hour "nap" for
+      // the day that was ending, then counted again as tomorrow's main sleep.
+      final d = _Day()
+        ..active(120)
+        ..still(90); // record ends mid-sleep
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, isEmpty,
+          reason: 'cannot know when a right-censored bout ends');
+      expect(m.note, contains('deferred'));
+    });
+
+    test('the same bout IS emitted once the record shows it ending', () {
+      final d = _Day()
+        ..active(120)
+        ..still(90)
+        ..active(60); // now we can see it end
+
+      expect(detectNaps(d.accel, d.hr).value, hasLength(1));
+    });
+
+    test('an awakening inside the unfinished night does not free a phantom nap',
+        () {
+      // REGRESSION. Deferring only the bout whose LAST second is still is not
+      // enough. The nap window runs 3 h past midnight, so tonight's sleep is in
+      // it; a perfectly ordinary 6-minute awakening at 01:50 splits that sleep
+      // into two bouts, and only the trailing one touches the record end. The
+      // leading fragment was emitted as a ~170-minute "nap" for the day that
+      // was ending, credited against tonight's sleep need, and then counted a
+      // SECOND time as tomorrow's main sleep.
+      final d = _Day()
+        ..still(360, bpm: 50) // last night's sleep — passed as mainSleep
+        ..active(1020, bpm: 82) // the waking day
+        ..still(170, bpm: 50) // tonight's sleep begins
+        ..active(6, bpm: 70) // a 6 min awakening — longer than the 5 min bridge
+        ..still(64, bpm: 50); // still asleep when the record stops
+
+      final m = detectNaps(
+        d.accel,
+        d.hr,
+        mainSleep: const SleepWindowSpan(0, 360 * 60),
+      );
+
+      expect(m.present, isTrue);
+      expect(m.value, isEmpty,
+          reason: 'both halves of an unfinished night must be deferred — '
+              'neither is a nap that happened today');
+      expect(m.note, contains('deferred'));
+    });
+
+    test('a bout already running at the record START is FLAGGED, not dropped',
+        () {
+      // The mirror of the deferral above. This end has a knowable END, so the
+      // episode is real and measurable — only its onset is unknown. Dropping it
+      // loses a genuine nap whenever the band started recording mid-bout;
+      // emitting it silently claims it began at the record edge. Flag it and
+      // let the caller decide.
+      final d = _Day()
+        ..still(40) // record opens mid-nap
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(1));
+      expect(m.value!.single.startsAtRecordEdge, isTrue);
+      expect(m.note, contains('already in progress at the first sample'));
+      expect(m.value!.single.toJson()['starts_at_record_edge'], isTrue);
+    });
+
+    test('a nap with observed sides is NOT flagged', () {
+      final d = _Day()
+        ..active(120)
+        ..still(30)
+        ..active(120);
+
+      expect(detectNaps(d.accel, d.hr).value!.single.startsAtRecordEdge,
+          isFalse);
+    });
+
+    test('the flag propagates FORWARD through a chained fragment', () {
+      // Symmetric with the backward propagation of `unfinished`: an awakening
+      // longer than the 5-minute bridge splits one edge-anchored episode into
+      // two bouts, and the second is just as much a fragment of a sleep that
+      // started before the record as the first.
+      final d = _Day()
+        ..still(40)
+        ..active(6, bpm: 70) // 6 min awakening — over the bridge, under the chain
+        ..still(40)
+        ..active(120);
+
+      final naps = detectNaps(d.accel, d.hr).value!;
+
+      expect(naps, hasLength(2));
+      expect(naps.every((n) => n.startsAtRecordEdge), isTrue);
+    });
+  });
+
+  group('detectNaps — the HR baseline is genuinely awake', () {
+    test('a real nap is still detected on a sleep-dominated window', () {
+      // REGRESSION. The baseline excluded only `mainSleep`, so it still
+      // contained the candidate nap's own low-HR seconds AND the hours of
+      // tonight's sleep that the nap window deliberately borrows. On a window
+      // where sleep outweighs wake, the median collapses toward sleeping HR and
+      // the dip gate becomes self-suppressing: the quieter the sleep, the lower
+      // the bar it has to beat. Here the contaminated median is ~48 bpm, so a
+      // genuine 60 bpm nap could never clear 0.95 x 48.
+      final d = _Day()
+        ..active(50, bpm: 78)
+        ..still(30, bpm: 60) // the genuine nap
+        ..active(70, bpm: 78) // > napChainGapSec, so no chained deferral
+        ..still(180, bpm: 48); // tonight's sleep, unfinished at the record end
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(1),
+          reason: 'the awake baseline is ~78 bpm; a 60 bpm nap clears it');
+      expect(m.value!.single.tstSec, closeTo(30 * 60, 90));
+    });
+
+    test('a real nap is still detected on a SEDENTARY day', () {
+      // The other side of the same coin, and the reason the fix keeps sedentary
+      // wake in the pool instead of dropping every bout: a day that is mostly
+      // sitting still must still be able to report the one block that was
+      // actually sleep. Baseline lands at desk HR (~72), and 56 clears
+      // 0.95 x 72 = 68.4 comfortably.
+      final d = _Day();
+      for (var b = 0; b < 4; b++) {
+        d
+          ..active(6, bpm: 96)
+          ..still(25, bpm: 72);
+      }
+      d.still(50, bpm: 56); // the genuine nap, a real autonomic dip
+      for (var b = 0; b < 4; b++) {
+        d
+          ..active(6, bpm: 96)
+          ..still(25, bpm: 72);
+      }
+      d.active(60, bpm: 96); // end awake: nothing to defer at the record end
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, hasLength(1),
+          reason: 'the deep-dip block is a nap even though the day around it '
+              'is sedentary');
+    });
+  });
+
+  group('detectNaps — recording holes are not stillness', () {
+    test('a gap inside a still block does not become one long nap', () {
+      // The substrate is a POSITIONAL array: pruning and sync holes leave the
+      // samples either side of a 2 h absence at adjacent indices. Measuring the
+      // bout in sample counts would read that unobserved hole as unbroken
+      // stillness and report a 2 h 20 m nap from 20 minutes of evidence.
+      final d = _Day()
+        ..active(90)
+        ..still(10)
+        ..gap(120)
+        ..still(10)
+        ..active(90);
+
+      final m = detectNaps(d.accel, d.hr);
+
+      expect(m.value, isEmpty,
+          reason: 'two 10-minute observed blocks, each below the 15 min floor '
+              '— the unobserved 2 h between them is not sleep');
+    });
+
+    test('a nap reported across no gap has tib matching its own bounds', () {
+      final d = _Day()
+        ..active(90)
+        ..still(30)
+        ..active(90);
+
+      final nap = detectNaps(d.accel, d.hr).value!.single;
+
+      expect(nap.tibSec, nap.endSec - nap.startSec,
+          reason: 'in-bed seconds must equal the reported span, or the card '
+              'and the clock range disagree');
+    });
+  });
+
+  group('detectNaps — determinism', () {
+    test('detection does not depend on wall-clock time of day', () {
+      // The old path routed candidates through a local-clock 11:00–20:00 guard,
+      // so an identical nap appeared or vanished with the machine timezone.
+      List<AccelSample> shifted(List<AccelSample> a, int hours) => [
+            for (final s in a)
+              AccelSample(s.tsMs + hours * 3600 * 1000, s.x, s.y, s.z)
+          ];
+
+      final d = _Day()
+        ..active(120)
+        ..still(30)
+        ..active(120);
+
+      final baseline = detectNaps(d.accel, d.hr);
+      for (final h in [3, 7, 11, 14, 19, 23]) {
+        final m = detectNaps(shifted(d.accel, h), d.hr);
+        expect(m.value!.length, baseline.value!.length,
+            reason: 'same nap, shifted $h h — detection must not move');
+        expect(m.value!.single.tstSec, baseline.value!.single.tstSec);
+      }
+    });
+  });
+
+  group('detectNaps — absent accel is not stillness (an-sleep-1)', () {
+    test('a 50-min all-invalid block emits NO nap', () {
+      // Reproduced pre-fix as `NAP {tib_sec: 3006, tst_sec: 3006,
+      // efficiency: 1.0, confidence: 0.85}` — the confidence CAP, for a nap
+      // built entirely out of missing data. The z-angle of an exact (0,0,0)
+      // sample is a perfectly well-formed constant 0.0 deg, which is why the
+      // angle rule could not see the difference.
+      final d = _Day()
+        ..active(120)
+        ..unmeasuredAccel(50)
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.present, isTrue, reason: 'the DAY was judged; it just held no nap');
+      expect(m.value, isEmpty, reason: 'pre-fix: 1 nap, 3006 s, confidence 0.85');
+    });
+
+    test('a nap is reported at its OBSERVED length, not its wall-clock one',
+        () {
+      // 20 min of genuine stillness followed by 25 min the band never measured.
+      // The unmeasured seconds fail `stillAt` outright, so they neither extend
+      // the bout nor bridge into a second one: the user is told about the 20
+      // minutes we watched, and nothing about the 25 we did not.
+      final d = _Day()
+        ..active(120)
+        ..still(20)
+        ..unmeasuredAccel(25)
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+      final nap = m.value!.single;
+      expect(nap.tibSec, closeTo(20 * 60, 60),
+          reason: 'pre-fix: ~45 min — the unmeasured half read as more sleep');
+      expect(nap.tstSec, nap.tibSec);
+    });
+
+    test('a fully-measured nap of the same shape still lands', () {
+      // The control: identical geometry, valid samples throughout. Without this
+      // the two tests above would also pass if the detector had simply stopped
+      // working.
+      final d = _Day()
+        ..active(120)
+        ..still(45)
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.value!.single.tibSec, greaterThan(40 * 60));
+    });
+
+    test('a day with no decoded accel is NOT judged nap-free', () {
+      // HR on every second, including a dip that would corroborate a nap, but
+      // gravity decoded on none — an HR-only thin-record day. No still bout can
+      // ever form, so the per-bout coverage gate never runs. Pre-fix this came
+      // back present with an empty list ("judged, none") at confidence 0.3.
+      final d = _Day()
+        ..unmeasuredAccel(8 * 60, bpm: 74)
+        ..unmeasuredAccel(45, bpm: 52)
+        ..unmeasuredAccel(7 * 60, bpm: 74);
+
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.present, isFalse,
+          reason: 'nothing about stillness was observable on this day');
+    });
+
+    test('a measured nap survives a day that is mostly unmeasured', () {
+      // A fully measured, HR-corroborated nap, then six hours of HR-only
+      // records with no gravity. The day as a whole is under the coverage
+      // floor, but the nap passed its own per-bout gate and must be kept.
+      final d = _Day()
+        ..active(120)
+        ..still(45)
+        ..active(120)
+        ..unmeasuredAccel(6 * 60, bpm: 74);
+
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.present, isTrue);
+      expect(m.value, hasLength(1));
+    });
+
+    test('a long recording hole counts against day-wide coverage', () {
+      // Every row that exists is measured, but they cover four hours of a
+      // 24 h span. Counting rows read this as full coverage and returned a
+      // judged "no nap" for twenty hours nobody observed.
+      final d = _Day()
+        ..active(120)
+        ..gap(20 * 60)
+        ..active(120);
+
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.present, isFalse);
+    });
+
+    test('accel coverage is judged outside the main sleep only', () {
+      // The awake day is fully measured; the unmeasured stretch is the night,
+      // which naps are never drawn from. The day stays judged.
+      final d = _Day()
+        ..unmeasuredAccel(8 * 60, bpm: 55)
+        ..active(6 * 60);
+
+      final m = detectNaps(d.accel, d.hr,
+          mainSleep: const SleepWindowSpan(0, 8 * 3600));
+      expect(m.present, isTrue);
+      expect(m.value, isEmpty);
+    });
+  });
+
+  group('detectNaps — cadence other than an unbroken 1 Hz', () {
+    // The immobility mask measures the stream's cadence and accepts anything up
+    // to the published 5 s van Hees epoch. The nap run builder used to demand a
+    // step of exactly 1 s between samples, so every one of these days came back
+    // as a judged "no qualifying nap" despite a clear 40-minute still block
+    // with an HR dip.
+    ({List<AccelSample> accel, List<double> hr}) day(int stepSec,
+        {int dropEvery = 0, int holeAtMin = -1, int holeMin = 0}) {
+      final accel = <AccelSample>[];
+      final hr = <double>[];
+      var t = 0;
+      var k = 0;
+      void emit(double x, double z, double bpm) {
+        k++;
+        if (holeAtMin >= 0 && t == holeAtMin * 60) t += holeMin * 60;
+        if (dropEvery > 0 && k % dropEvery == 0) {
+          t += stepSec;
+          return;
+        }
+        accel.add(AccelSample(t * 1000.0, x, 0, z));
+        hr.add(bpm);
+        t += stepSec;
+      }
+
+      void active(int min) {
+        final end = t + min * 60;
+        while (t < end) {
+          final rad = (45 + 35 * math.sin(t * 0.4)) * math.pi / 180;
+          emit(math.cos(rad), math.sin(rad), 82);
+        }
+      }
+
+      void still(int min) {
+        final end = t + min * 60;
+        while (t < end) {
+          emit(0, 1, 54);
+        }
+      }
+
+      active(120);
+      still(40);
+      active(120);
+      return (accel: accel, hr: hr);
+    }
+
+    for (final step in [2, 5]) {
+      test('a 40-minute nap at a $step s cadence is detected', () {
+        final d = day(step);
+        final m = detectNaps(d.accel, d.hr);
+        expect(m.present, isTrue);
+        final nap = m.value!.single;
+        expect(nap.tibSec, closeTo(40 * 60, 6 * 60));
+      });
+    }
+
+    test('time asleep is wall-clock seconds at a 5 s cadence, like tib', () {
+      // One still sample stands for five seconds here. Counting one per
+      // sample reported a fully-still nap as a fifth asleep.
+      final d = day(5);
+      final nap = detectNaps(d.accel, d.hr).value!.single;
+      expect(nap.tstSec, greaterThan(nap.tibSec * 0.8));
+      expect(nap.tstSec, lessThanOrEqualTo(nap.tibSec));
+    });
+
+    // Fractional cadences. Flooring the measured cadence to whole seconds
+    // credited a 2.5 s sample with 2 s and a 0.5 s sample with a full second.
+    ({List<AccelSample> accel, List<double> hr}) dayMs(int stepMs,
+        {bool Function(int k)? invalid, bool nap = true}) {
+      final accel = <AccelSample>[];
+      final hr = <double>[];
+      var tMs = 0;
+      var k = 0;
+      void emit(double x, double z, double bpm) {
+        final bad = invalid?.call(k) ?? false;
+        accel.add(bad
+            ? AccelSample(tMs.toDouble(), 0, 0, 0, valid: false)
+            : AccelSample(tMs.toDouble(), x, 0, z));
+        hr.add(bpm);
+        tMs += stepMs;
+        k++;
+      }
+
+      void active(int min) {
+        final end = tMs + min * 60000;
+        while (tMs < end) {
+          final rad = (45 + 35 * math.sin(tMs * 0.0004)) * math.pi / 180;
+          emit(math.cos(rad), math.sin(rad), 82);
+        }
+      }
+
+      void still(int min) {
+        final end = tMs + min * 60000;
+        while (tMs < end) {
+          emit(0, 1, 54);
+        }
+      }
+
+      active(120);
+      if (nap) {
+        still(40);
+        active(120);
+      }
+      return (accel: accel, hr: hr);
+    }
+
+    test('time asleep is not floored at a 2.5 s cadence', () {
+      final d = dayMs(2500);
+      final nap = detectNaps(d.accel, d.hr).value!.single;
+      expect(nap.tstSec, greaterThan(nap.tibSec * 0.9),
+          reason: 'flooring 2.5 s to 2 s put a fully-still nap at 80% asleep');
+      expect(nap.tstSec, lessThanOrEqualTo(nap.tibSec));
+    });
+
+    test('day accel coverage is not doubled at a 0.5 s cadence', () {
+      // Gravity decoded on 2 of every 5 samples: 40% of the day, under the
+      // 50% gate. Crediting each 0.5 s sample a full second read it as 80%
+      // and published a judged "no nap".
+      final d = dayMs(500, invalid: (k) => k % 5 >= 2, nap: false);
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.present, isFalse, reason: m.note);
+    });
+
+    test('a skipped second at 1 Hz does not end the nap', () {
+      final d = day(1, dropEvery: 120);
+      final m = detectNaps(d.accel, d.hr);
+      expect(m.value!.single.tibSec, closeTo(40 * 60, 6 * 60));
+    });
+
+    test('a real recording hole inside the still block still breaks it', () {
+      // 120 min active, then 20 min still, a 30-minute hole, 20 more still:
+      // neither half reaches the nap minimum on its own once the unobserved
+      // half hour is not read as stillness.
+      final d = day(2, holeAtMin: 140, holeMin: 30);
+      final m = detectNaps(d.accel, d.hr);
+      for (final nap in m.value ?? const <NapWindow>[]) {
+        expect(nap.tibSec, lessThan(30 * 60));
+      }
+    });
+  });
+}

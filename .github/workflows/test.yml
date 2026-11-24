@@ -50,20 +50,9 @@ jobs:
           channel: stable
           cache: true
 
-      # `flutter pub get` run locally WITH pubspec_overrides.yaml present
-      # rewrites the tracked pubspec.lock to `path: ../analytics` and drops the
-      # resolved-ref, so the lock stops recording which sibling commit was
-      # actually tested. It is easy to do by accident — any local `flutter
-      # build` or `flutter test` triggers it — and it has reached main before.
-      # This runs BEFORE `pub get` so it inspects the committed file. Shared
-      # with build.yml's `preflight` — a tag push never runs this job, so the
-      # guard has to live there too to actually protect a release.
-      - name: Guard — the lock pins sibling commits, and the pins aren't stale
-        run: bash .github/scripts/check_sibling_pins.sh
-
-      # Sibling packages resolve from their pinned commit SHAs in pubspec.yaml.
-      # There is no pubspec_overrides.yaml here — that file is gitignored and
-      # local-dev only — so CI tests exactly the pins a release would ship.
+      # Sibling packages (openstrap_protocol, openstrap_analytics) are vendored
+      # under packages/ and resolved as local path dependencies, so CI tests
+      # exactly the code in this commit.
       - name: Install dependencies
         run: flutter pub get
 
