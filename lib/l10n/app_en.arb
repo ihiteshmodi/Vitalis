@@ -18371,5 +18371,26 @@
   "pairingDirectScanSub": "Use inside LiveContainer or when the system picker does not attach",
   "@pairingDirectScanSub": {"description": "Pairing switch subtitle explaining when to turn on direct Bluetooth scan."},
   "pairingRetryWithDirectScan": "Pair with direct Bluetooth scan",
-  "@pairingRetryWithDirectScan": {"description": "One-tap fallback button on the pairing failure screen when the system picker failed."}
+  "@pairingRetryWithDirectScan": {"description": "One-tap fallback button on the pairing failure screen when the system picker failed."},
+  "devicesRestartBand": "Restart band",
+  "@devicesRestartBand": {"description": "Device page row: restart the connected band without erasing saved recordings."},
+  "devicesRestartBandSub": "Restarts the band without erasing saved recordings",
+  "@devicesRestartBandSub": {"description": "Device page row subtitle when the band can be restarted."},
+  "devicesRestartBandDisconnectedSub": "Connect to the band to restart it",
+  "@devicesRestartBandDisconnectedSub": {"description": "Device page row subtitle when the band is disconnected."},
+  "devicesRestartBandSyncingSub": "Wait for the current sync to finish before restarting",
+  "@devicesRestartBandSyncingSub": {"description": "Device page row subtitle while a sync offload is running."},
+  "devicesRestartConfirmTitle": "Restart {name}?",
+  "@devicesRestartConfirmTitle": {
+    "description": "Confirm dialog title before restarting the band.",
+    "placeholders": {"name": {"type": "String"}}
+  },
+  "devicesRestartConfirmBody": "The band restarts and reconnects in a few seconds. Recordings stored on the band and on this phone stay safe.",
+  "@devicesRestartConfirmBody": {"description": "Confirm dialog body explaining what band restart does."},
+  "devicesRestartConfirmYes": "Restart",
+  "@devicesRestartConfirmYes": {"description": "Confirm button in the restart band dialog."},
+  "devicesRestartSent": "Restart command sent — reconnecting shortly.",
+  "@devicesRestartSent": {"description": "Snackbar after sending the restart command to the band."},
+  "devicesRestartFailed": "Could not restart the band. Check that it is close and not mid-sync.",
+  "@devicesRestartFailed": {"description": "Snackbar when the band restart command could not be sent."}
 }

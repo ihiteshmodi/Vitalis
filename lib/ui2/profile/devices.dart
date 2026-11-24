@@ -2106,6 +2106,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
       health: _health,
       forecast: _forecast,
       onFind: app?.buzzBand,
+      onRestart: (s.isBand && app != null && app.isConnected && !app.syncingNow)
+          ? () => _confirmRestartBand(c, app, s.displayName(c))
+          : null,
       onInstallImage: (s.isBand && family == 'gen5')
           ? () => goto(c, const FirmwareFlashScreen())
           : null,
@@ -2517,9 +2520,48 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
   if (c.mounted) backToRoot(c);
 }
 
+Future<void> _confirmRestartBand(
+    BuildContext c, AppState app, String name) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  final ok = await showDialog<bool>(
+    context: c,
+    builder: (d) => AlertDialog(
+      title: Text(l?.devicesRestartConfirmTitle(name) ?? 'Restart $name?'),
+      content: Text(
+        l?.devicesRestartConfirmBody ??
+            'The band restarts and reconnects in a few seconds. Recordings stored on the band and on this phone stay safe.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(d).pop(false),
+          child: Text(l?.actionCancel ?? 'Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(d).pop(true),
+          child: Text(l?.devicesRestartConfirmYes ?? 'Restart'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  final sent = await app.restartBand();
+  messenger?.showSnackBar(
+    SnackBar(
+      content: Text(
+        sent
+            ? (l?.devicesRestartSent ??
+                'Restart command sent — reconnecting shortly.')
+            : (l?.devicesRestartFailed ??
+                'Could not restart the band. Check that it is close and not mid-sync.'),
+      ),
+    ),
+  );
+}
+
 class DeviceDetailView extends StatelessWidget {
   final HealthSource s;
-  final VoidCallback? onFind, onForget, onSync;
+  final VoidCallback? onFind, onRestart, onForget, onSync;
 
   /// The beat arriving right now, or null when nothing fresh is streaming.
   /// Passed IN rather than read from a provider here: this view is rendered in
@@ -2558,6 +2600,7 @@ class DeviceDetailView extends StatelessWidget {
   const DeviceDetailView(this.s,
       {super.key,
       this.onFind,
+      this.onRestart,
       this.onInstallImage,
       this.onForget,
       this.onSync,
@@ -2854,6 +2897,22 @@ class DeviceDetailView extends StatelessWidget {
                             chevron: false,
                             onTap: onFind),
                       ],
+                      Divider(color: p.line, height: 1),
+                      SetRow(
+                        LucideIcons.rotateCcw,
+                        C.orange,
+                        l?.devicesRestartBand ?? 'Restart band',
+                        sub: onRestart != null
+                            ? (l?.devicesRestartBandSub ??
+                                'Restarts the band without erasing saved recordings')
+                            : s.syncing
+                                ? (l?.devicesRestartBandSyncingSub ??
+                                    'Wait for the current sync to finish before restarting')
+                                : (l?.devicesRestartBandDisconnectedSub ??
+                                    'Connect to the band to restart it'),
+                        chevron: onRestart != null,
+                        onTap: onRestart,
+                      ),
                       if (onInstallImage != null) ...[
                         Divider(color: p.line, height: 1),
                         SetRow(

@@ -2080,6 +2080,15 @@ class AppState extends ChangeNotifier {
               archives: archives,
               ecgRawPackets: ecgRawPackets,
               deviceFamily: deviceFamily);
+          final today = todayLabel();
+          final touchedPast = samples.any((s) =>
+              s != null &&
+              s.tsEpoch > 0 &&
+              dayLabelOf(
+                    DateTime.fromMillisecondsSinceEpoch(s.tsEpoch * 1000),
+                  ).compareTo(today) <
+                  0);
+          if (touchedPast) _deriveScheduler.requestHeavy();
         } catch (_) {
           IosShortcutSync.foregroundCommitFailed();
           rethrow;
@@ -6272,6 +6281,13 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       // Best-effort by design: the next tick will try again.
     }
+  }
+
+  /// User-confirmed band restart (opcode 0x1D). Refused when disconnected or
+  /// while a sync offload is actively running.
+  Future<bool> restartBand() async {
+    if (!isConnected || syncingNow) return false;
+    return engine.rebootStrap();
   }
 
   /// The UI's "Cancel-all": DISABLE_ALARM on the band, and clear the whole

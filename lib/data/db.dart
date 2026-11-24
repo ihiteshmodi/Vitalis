@@ -5356,6 +5356,45 @@ class LocalDb {
           toleranceSec: coverageToleranceSec,
           deviceFamily: deviceFamily,
         );
+        // Post-reboot re-offload: if newly arrived 1 Hz records touch a past
+        // calendar day that was already marked finalized=1, reopen that day and
+        // drop its cached derive fingerprint so heavy derivation recomputes it
+        // from the replaced substrate.
+        final touchedDays = <String>{};
+        void markEpoch(int sec) {
+          if (sec <= 0) return;
+          final dt = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+          touchedDays.add(dayLabelOf(dt));
+          if (dt.hour >= 18) {
+            touchedDays.add(
+              dayLabelOf(DateTime(dt.year, dt.month, dt.day + 1)),
+            );
+          }
+        }
+        for (final s in sampleSecs) {
+          markEpoch(s);
+        }
+        if (neutrals != null) {
+          for (final n in neutrals) {
+            markEpoch(n.tsEpoch);
+          }
+        }
+        if (touchedDays.isNotEmpty) {
+          final ph = List.filled(touchedDays.length, '?').join(',');
+          final args = touchedDays.toList();
+          final reopened = await txn.rawUpdate(
+            'UPDATE day_result SET finalized = 0 '
+            'WHERE finalized = 1 AND day_id IN ($ph)',
+            args,
+          );
+          if (reopened > 0) {
+            await txn.delete(
+              _deriveFingerprintTable,
+              where: 'day_id IN ($ph)',
+              whereArgs: args,
+            );
+          }
+        }
         // Only a real record moves the frontier. A commit that banked none (a
         // bare HISTORY_END token, gate-dropped archives) on an install with no
         // cursor yet would otherwise persist '0', which every `?? fallback`

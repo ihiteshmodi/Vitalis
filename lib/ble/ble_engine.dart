@@ -8205,6 +8205,34 @@ class BleEngine {
     _log('gen5 R22 deep-buffer enable sequence sent.');
   }
 
+  /// Explicit user-confirmed strap restart (opcode 0x1D / 29, empty body).
+  ///
+  /// Non-destructive (preserves onboard flash), but kept in `dangerousCmds` so
+  /// no background/automatic path can ever emit it. Refused when disconnected,
+  /// mid-offload (so an in-flight chunk is never interrupted around an ACK), or
+  /// during an image flash.
+  Future<bool> rebootStrap() async {
+    final session = _session;
+    if (session == null ||
+        !session.connected ||
+        session.closing ||
+        _offloadActive ||
+        _flashLock) {
+      _log('[REBOOT] Refused strap restart '
+          '(connected=${session?.connected ?? false}, offload=$_offloadActive, flash=$_flashLock).');
+      return false;
+    }
+    final frame = buildCommand(
+      _seq.nextLive(),
+      Cmd.rebootStrap,
+      const <int>[],
+      session.band,
+    );
+    _log('[REBOOT] Sending user-confirmed strap restart '
+        '(op=0x1d, band=${session.entry.id}).');
+    return _write(frame, owner: session, allowDangerous: true);
+  }
+
   // ── high-level flows ─────────────────────────────────────────────────────────────
   /// [drain] false sends the first FOUR packets only: seq4 is
   /// SEND_HISTORICAL_DATA (the flash drain), and it is skipped when the phone
