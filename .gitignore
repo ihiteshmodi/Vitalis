@@ -114,6 +114,18 @@ ios/build/
 # its date) and this repo is public. They stay on disk and out of git.
 docs/internal/
 
+# Private health databases, unsigned LiveContainer .ipa outputs, simulator
+# screenshots, UI test logs and Lavish review artifacts — never commit.
+output/*
+.shots/
+.uitest-logs/
+.lavish/
+*.ipa
+*.db
+*.db-shm
+*.db-wal
+
+
 # Same leak class as docs/internal/ above — local debug dumps of real dated
 # HRV/sleep payloads (RMSSD/SDNN/pNN50 tied to a calendar date). Never commit.
 payload*.json
