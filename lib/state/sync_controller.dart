@@ -20,6 +20,7 @@ import '../sync/reset_gate.dart';
 import '../sync/shortcut_sync_task.dart';
 import '../sync/sync_policy.dart'
     show
+        BackfillContinuation,
         ReconnectSupervisorAction,
         ResumeLinkAction,
         kIosBackgroundPromptIntervalSeconds,
@@ -457,42 +458,34 @@ class SyncController {
         _log('Backfill stop — history complete acknowledged by strap.');
         break;
       }
-      if (!frontierAdvanced && !backlogRemains) {
-        // Frontier didn't advance AND the strap reports nothing newer than what
-        // we already hold → genuinely nothing more to pull (or a pure re-send).
-        _log(
-          'Backfill stop — frontier did not advance and no backlog remains '
-          '(strap newest=$strapNewest, frontier=$frontierAfter).',
-        );
-        break;
-      }
-      if (!frontierAdvanced &&
-          report.records == 0 &&
-          engine.historyGateDrops == dropsBefore) {
-        // Batches with no records in them (a strap writing no 1 Hz data, e.g.
-        // off-wrist) are not a stale block: there is nothing to drain through.
-        // Gate drops are: a frozen-clock block's records are rejected below the
-        // frontier and never counted, but the trim still walks past them.
-        _log('Backfill stop — batches carried no records; frontier stuck '
-            '(strap newest=$strapNewest, frontier=$frontierAfter).');
+      if (!BackfillContinuation.shouldContinueBurstSession(
+        batches: report.batches,
+        records: report.records,
+        gateDropsDelta: engine.historyGateDrops - dropsBefore,
+        complete: report.complete,
+        frontierAdvanced: frontierAdvanced,
+        strapNewestTs: strapNewest,
+        frontierAfterTs: frontierAfter,
+      )) {
+        if (!frontierAdvanced && strapNewest != null && !backlogRemains) {
+          _log(
+            'Backfill stop — frontier did not advance and no backlog remains '
+            '(strap newest=$strapNewest, frontier=$frontierAfter).',
+          );
+        } else if (!frontierAdvanced) {
+          _log('Backfill stop — batches carried no records; frontier stuck '
+              '(strap newest=$strapNewest, frontier=$frontierAfter).');
+        }
         break;
       }
       if (!frontierAdvanced) {
-        // Frontier stuck but the strap says it HAS newer data. This happens when
-        // a stretch of flash carries STALE/duplicate timestamps — e.g. the band
-        // rebooted, lost its RTC, and recorded for a while with a frozen clock
-        // before SET_CLOCK re-latched. The rec_ts frontier can't advance across
-        // that block, but the flash read cursor IS walking forward (batches>0),
-        // so DON'T stop — drain through the stale block to reach the newer,
-        // correctly-stamped records behind it. Bounded by maxSessions.
         _log(
-          'Backfill continuation ${i + 1}/$maxSessions — frontier stuck on a '
-          'stale-timestamp block but strap reports backlog '
-          '(newest=$strapNewest > frontier=$frontierAfter); draining through.',
+          'Backfill continuation ${i + 1}/$maxSessions — frontier behind or '
+          'draining pre-cursor overlap '
+          '(newest=$strapNewest, frontier=$frontierAfter, complete=${report.complete}); draining through.',
         );
         continue;
       }
-      if (!backlogRemains) break;
       _log(
         'Backfill continuation ${i + 1}/$maxSessions — '
         'frontier still behind strap newest ($strapNewest > $frontierAfter).',

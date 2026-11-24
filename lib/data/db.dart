@@ -57,6 +57,7 @@ import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import '../compute/step_calibration_fit.dart';
+import '../sync/sync_policy.dart' show isPlausibleUnix;
 import 'step_calibration.dart';
 import '../sync/reset_gate.dart';
 import 'hyrox_store.dart';
@@ -12720,6 +12721,7 @@ class LocalDb {
     int? archiveEdgeSec;
     var impAttached = false;
     var failed = true;
+    var rejectedFutureRecTsHw = false;
 
     // Attempt every cleanup operation. Preserve the original restore error,
     // but surface a cleanup failure when the copy otherwise succeeded.
@@ -12787,6 +12789,12 @@ class LocalDb {
 
       if (!sourceColumns.any(destColumns.contains)) return false;
 
+      final hasLocalRrForOneHz = t == 'decoded_onehz' &&
+          sourceColumns.contains('hr') &&
+          Sqflite.firstIntValue(
+                await db.rawQuery('SELECT 1 FROM main.decoded_rr LIMIT 1'),
+              ) !=
+              null;
       const deviceKeyed = {'samples', 'decoded_onehz', 'decoded_rr'};
       final isDeviceKeyed = deviceKeyed.contains(t);
       final sourceTsMs = sourceColumns.contains('ts_ms')
@@ -12966,6 +12974,19 @@ class LocalDb {
                   await txn.rawQuery('SELECT changes()'),
                 ) ??
                 0;
+            if (hasLocalRrForOneHz) {
+              await txn.execute('''DELETE FROM main.decoded_rr WHERE rowid IN (
+                SELECT r.rowid FROM (
+                  SELECT DISTINCT $derivedDeviceId AS d, $derivedTsMs AS k
+                  FROM imp.${quoteSql(t)} s
+                  WHERE $where
+                    AND ${numericSql(sourceColumn('hr'))}
+                    AND CAST(${sourceColumn('hr')} AS INTEGER) = 0
+                ) z
+                JOIN main.decoded_rr r
+                  ON r.device_id = z.d AND r.ts_ms = z.k)''',
+                  [lower, upper]);
+            }
             if (t == 'decoded_rr') {
               // Materialised and driven from the chunk's seconds, so the
               // delete walks decoded_rr's (device_id, ts_ms, beat_index) key
@@ -13444,10 +13465,32 @@ class LocalDb {
                 }
                 if (t == 'sync_cursor') {
                   final name = '${row['name']}';
-                  // Only a successful restore on THIS install establishes it.
-                  if (name == _kSettingsImported) continue;
+                  // Only a successful restore on THIS install establishes it;
+                  // strap_trim is a live hardware ACK token for one session and
+                  // must never travel from a backup.
+                  if (name == _kSettingsImported ||
+                      name == 'strap_trim' ||
+                      name.startsWith('strap_trim:')) {
+                    continue;
+                  }
+                  final isRecTsHw =
+                      name == 'rec_ts_hw' || name.startsWith('rec_ts_hw:');
+                  final isCounterHw =
+                      name == 'counter_hw' || name.startsWith('counter_hw:');
+                  if (isRecTsHw) {
+                    final theirs = int.tryParse('${row['value']}');
+                    final nowSec =
+                        DateTime.now().millisecondsSinceEpoch ~/ 1000;
+                    if (theirs == null || !isPlausibleUnix(theirs, nowSec)) {
+                      if (name == 'rec_ts_hw') rejectedFutureRecTsHw = true;
+                      continue;
+                    }
+                  }
                   if (localCursors.containsKey(name)) {
-                    if (name != kDecodedPrunedBeforeCursor) continue;
+                    final monotonic = name == kDecodedPrunedBeforeCursor ||
+                        isRecTsHw ||
+                        isCounterHw;
+                    if (!monotonic) continue;
                     final mine = int.tryParse('${localCursors[name]}');
                     final theirs = int.tryParse('${row['value']}');
                     if (theirs == null || (mine != null && theirs <= mine)) {
@@ -13597,6 +13640,17 @@ class LocalDb {
                       : ConflictAlgorithm.replace,
                 );
                 copied++;
+                if (t == 'decoded_onehz' &&
+                    row['hr'] is num &&
+                    (row['hr'] as num).toInt() == 0 &&
+                    row['ts_ms'] != null) {
+                  batch.delete(
+                    'decoded_rr',
+                    where: 'device_id = ? AND ts_ms = ?',
+                    whereArgs: [row['device_id'] ?? kPrimaryDeviceId, row['ts_ms']],
+                  );
+                  if (++ops >= chunkOps) await flush();
+                }
                 if (t == 'decoded_rr') {
                   final idx = row['beat_index'];
                   final key = (row['device_id'], row['ts_ms']);
@@ -13693,6 +13747,21 @@ class LocalDb {
     // count it removes, so it runs again.
     if ((counts['day_result'] ?? 0) > 0 || (counts['sleep_nap'] ?? 0) > 0) {
       await deleteComputeFreshness(kNapNextNightCleanupKey);
+    }
+    if (rejectedFutureRecTsHw) {
+      final edge = await lastDecodedRecTs();
+      final existing = await getCursorInt('rec_ts_hw');
+      if (edge != null && (existing == null || edge > existing)) {
+        await db.insert(
+          'sync_cursor',
+          {
+            'name': 'rec_ts_hw',
+            'value': '$edge',
+            'updated_at': edge * 1000,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
     }
     // Last, so it can never be mistaken for a table row count by anything that
     // walks this map in order.

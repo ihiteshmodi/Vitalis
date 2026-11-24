@@ -2826,6 +2826,22 @@ class BleEngine {
 
   int? get strapHistoryNewestTs => _strapHistoryNewestTs;
 
+  /// Current plausible record frontier held by [_recordGate].
+  int get recordFrontierTs => _recordGate.frontierTs;
+
+  /// Reload `rec_ts_hw` and `counter_hw` into the active gate and counter watch
+  /// after an out-of-band database restore, without dropping a live BLE link.
+  Future<void> reseedCursorsFromStore() async {
+    final frontier = (await cursorReader?.call('rec_ts_hw')) ?? 0;
+    _recordGate.frontierTs = frontier;
+    _burstDroppedAtStart = _recordGate.dropped;
+    _burstDroppedBelowFloorAtStart = _recordGate.droppedBelowFloor;
+    _counterRegression = CounterRegressionDetector(
+      seedCounter: await cursorReader?.call('counter_hw'),
+    );
+    _stuckStrap.reset();
+  }
+
   /// Run [body] under the single in-flight guard. Chains onto the existing op so
   /// callers can never start two transport operations concurrently.
   Future<T> _locked<T>(Future<T> Function() body) {

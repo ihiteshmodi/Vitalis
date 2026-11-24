@@ -836,6 +836,9 @@ class AppState extends ChangeNotifier {
       final recTsHw = await LocalDb.getRecordFrontier();
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) _lastRecTs = recTsHw;
       _bandUntimedArchive = await LocalDb.hasGateDroppedArchive();
+      await engine.reseedCursorsFromStore();
+      _deriveScheduler.requestHeavy();
+      if (isConnected) unawaited(syncNow());
     } catch (e) {
       importRollupError ??= '$e';
     }

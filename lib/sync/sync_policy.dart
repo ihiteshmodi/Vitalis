@@ -707,6 +707,38 @@ class BackfillContinuation {
     }
     return rowsPersistedThisSession > 0;
   }
+
+  /// Whether `SyncController._runSyncBurst` should start another session after
+  /// a completed or timed-out `engine.runSync` call.
+  ///
+  /// Fixes the post-restore overlap stall: when a backup holds `rec_ts_hw = T`
+  /// and the strap re-sends overlap chunks before `T` (`frontierAdvanced` is
+  /// false, `complete` is false, `records > 0`) while `strapNewestTs` is null
+  /// (`GET_DATA_RANGE` did not report `range_newest`), we must keep draining
+  /// through the overlap rather than mistaking `strapNewestTs == null` for
+  /// "no backlog remains".
+  static bool shouldContinueBurstSession({
+    required int batches,
+    required int records,
+    required int gateDropsDelta,
+    required bool complete,
+    required bool frontierAdvanced,
+    required int? strapNewestTs,
+    required int? frontierAfterTs,
+    int behindGapSeconds = defaultBehindGapSeconds,
+  }) {
+    if (batches == 0) return false;
+    final backlogRemains = strapNewestTs != null &&
+        frontierAfterTs != null &&
+        (strapNewestTs - frontierAfterTs) > behindGapSeconds;
+    if (complete && !backlogRemains) return false;
+    if (frontierAdvanced) {
+      return backlogRemains || (!complete && strapNewestTs == null);
+    }
+    if (strapNewestTs != null && !backlogRemains) return false;
+    if (records == 0 && gateDropsDelta == 0) return false;
+    return backlogRemains || (!complete && strapNewestTs == null);
+  }
 }
 
 // ── detector 1: marginal radio ───────────────────────────────────────────────
