@@ -35,6 +35,7 @@ const Map<String, String> kPrefsNotBackedUp = {
   'backup.last_run_ms': 'status of this install\'s automatic backup',
   'backup.last_error': 'status of this install\'s automatic backup',
   'ble.ask_add_pending': 'transient pairing prompt pending on this phone',
+  'ble.pairing_scan_mode': 'per-install Bluetooth pairing transport choice',
   'live.session_draft': 'unfinished workout entries, including private sessions, stay local',
   'live_session_checkpoint': 'write-ahead step recovery for this phone; replay could duplicate steps',
   'telemetry_outbox': 'queued diagnostics belong to this install and its consent',

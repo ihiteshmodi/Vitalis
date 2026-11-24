@@ -66,7 +66,7 @@ const _mustTravel = {
 const _mustStay = {
   'device_alerts.low_armed',
   'install_device_id', 'paired_remote_id', 'paired_serial', 'paired_generation',
-  'paired_worn_on', 'ble.ask_add_pending',
+  'paired_worn_on', 'ble.ask_add_pending', 'ble.pairing_scan_mode',
   'consent_telemetry', 'consent_health_data', 'consent_chosen',
   'coach_api_key_present', 'coach_chatgpt_present', 'coach_chatgpt_client_id',
   'coach_chatgpt_host_id', 'coach_chatgpt_welcomed', 'coach_base_url', 'companion_url',

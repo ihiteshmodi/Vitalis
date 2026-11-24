@@ -18365,5 +18365,11 @@
   "alarmAllDays": "All days",
   "@alarmAllDays": {"description": "Snackbar action: copy the wake time just set to every weekday."},
   "alarmCopiedToAllDays": "Wake time copied to every day",
-  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."}
+  "@alarmCopiedToAllDays": {"description": "Snackbar: wake time copied to every weekday."},
+  "pairingDirectScanTitle": "Direct Bluetooth scan",
+  "@pairingDirectScanTitle": {"description": "Pairing switch title: bypass the iOS system accessory picker and scan directly over Bluetooth (needed in LiveContainer)."},
+  "pairingDirectScanSub": "Use inside LiveContainer or when the system picker does not attach",
+  "@pairingDirectScanSub": {"description": "Pairing switch subtitle explaining when to turn on direct Bluetooth scan."},
+  "pairingRetryWithDirectScan": "Pair with direct Bluetooth scan",
+  "@pairingRetryWithDirectScan": {"description": "One-tap fallback button on the pairing failure screen when the system picker failed."}
 }

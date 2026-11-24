@@ -116,6 +116,11 @@ class Prefs {
   /// without asking: switching it on never rewrites days already past.
   static const String napAutoLogSinceSec = 'activity.nap_auto_log_since_sec';
 
+  /// Bypass iOS AccessorySetupKit picker and scan directly over CoreBluetooth
+  /// (needed inside host containers such as LiveContainer where ASK's approval
+  /// attaches to the host bundle rather than the guest app).
+  static const String pairingScanMode = 'ble.pairing_scan_mode';
+
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.
   static String metricTab(String metric) => 'ui.metric_tab.$metric';

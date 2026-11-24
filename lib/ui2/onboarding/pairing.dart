@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 import '../../ble/adapters/_registry.dart' show BandEntry, ResetKind;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart';
+import '../../ble/ios_ble_restore.dart';
 import '../../l10n/app_localizations.dart';
 import '../../l10n/display_text.dart' show localizedText;
 import '../../state/app_state.dart';
@@ -97,6 +98,15 @@ BleBlocker? pairBlocker(Object error) => error is BleUnavailableException
     ? error.blocker
     : classifyBleBlocker(error: error);
 
+/// Whether iOS 18+ AccessorySetupKit should run for this pairing attempt.
+/// Direct scan mode overrides ASK so guest containers (LiveContainer) can pair
+/// over plain CoreBluetooth when the system picker's approval belongs to the host.
+bool askPairingAllowed({
+  required bool platformSupported,
+  required bool scanModeChosen,
+}) =>
+    platformSupported && !scanModeChosen;
+
 /// Classify a thrown pairing error. Pure — this is the whole reason the
 /// distinct states exist rather than one "Couldn't pair".
 PairPhase classifyPairError(Object error, {int bondRefusals = 0}) {
@@ -142,34 +152,77 @@ class PairingScreen extends StatefulWidget {
 class _PairingScreenState extends State<PairingScreen> {
   PairPhase _phase = PairPhase.idle;
   String _detail = '';
+  String? _stage;
   BleBlocker? _blocker;
   bool _usedAccessoryPicker = false;
+  bool _askPlatformSupported = false;
+  bool _scanMode = Prefs.getBool(Prefs.pairingScanMode, false);
 
-  Future<void> _pair() async {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadPlatformSupport());
+  }
+
+  Future<void> _loadPlatformSupport() async {
+    try {
+      final supported = await context.read<AppState>().accessorySetupSupported();
+      if (mounted) setState(() => _askPlatformSupported = supported);
+    } catch (_) {}
+  }
+
+  void _setScanMode(bool value) {
+    Prefs.setBool(Prefs.pairingScanMode, value);
+    setState(() => _scanMode = value);
+  }
+
+  Future<void> _pair({bool forceScan = false}) async {
     final app = context.read<AppState>();
+    if (forceScan) {
+      Prefs.setBool(Prefs.pairingScanMode, true);
+      _scanMode = true;
+    }
     setState(() {
       _phase = PairPhase.scanning;
       _detail = '';
+      _stage = 'checking setup';
       _blocker = null;
     });
     try {
-      final accessorySetup = await app.accessorySetupSupported();
+      final platformAsk = await app.accessorySetupSupported();
       if (!mounted) return;
+      _askPlatformSupported = platformAsk;
+      final accessorySetup = askPairingAllowed(
+        platformSupported: platformAsk,
+        scanModeChosen: _scanMode,
+      );
       _usedAccessoryPicker = accessorySetup;
       if (accessorySetup) {
+        setState(() => _stage = 'opening picker');
         if (widget.replacing) {
           await app.replaceViaAccessorySetup();
         } else {
           await app.pairViaAccessorySetup();
         }
       } else {
+        setState(() => _stage = 'scanning via Bluetooth');
         final found = await app.scanForBand(
             remoteId: widget.remoteId, generation: widget.modelKnown ? widget.entry?.id : null);
         if (!mounted) return;
         if (found == null) {
-          if (mounted) setState(() => _phase = PairPhase.notFound);
+          if (mounted) {
+            setState(() {
+              _stage = null;
+              _phase = PairPhase.notFound;
+            });
+          }
           return;
         }
+        if (platformAsk) {
+          await IosBleRestore.provisioned(found.remoteId.str);
+          if (!mounted) return;
+        }
+        setState(() => _stage = 'connecting to band');
         if (widget.replacing) {
           await app.replaceWith(found);
         } else {
@@ -177,7 +230,10 @@ class _PairingScreenState extends State<PairingScreen> {
         }
       }
       if (!mounted) return;
-      setState(() => _phase = PairPhase.paired);
+      setState(() {
+        _stage = null;
+        _phase = PairPhase.paired;
+      });
       // Pushed from the device picker, nothing under this route reacts to
       // `isPaired` — the onboarding gate swaps `home` beneath it — and the
       // only button on "Paired" re-runs the scan. Close it, unless something
@@ -200,8 +256,19 @@ class _PairingScreenState extends State<PairingScreen> {
   Widget build(BuildContext c) => PairingView(
         phase: _phase,
         detail: _detail,
+        stage: _stage,
         blocker: _blocker,
-        onPair: _pair,
+        scanMode: _scanMode,
+        onScanModeChanged: _askPlatformSupported ? _setScanMode : null,
+        onRetryWithScan: _askPlatformSupported &&
+                _usedAccessoryPicker &&
+                !_scanMode &&
+                (_phase == PairPhase.failed ||
+                    _phase == PairPhase.cancelled ||
+                    _phase == PairPhase.notFound)
+            ? () => _pair(forceScan: true)
+            : null,
+        onPair: () => _pair(),
         onSkip: widget.onSkip,
         resetEntry: widget.modelKnown && !_usedAccessoryPicker ? widget.entry : null,
         onPickDifferent: Navigator.of(c).canPop()
@@ -213,6 +280,10 @@ class _PairingScreenState extends State<PairingScreen> {
 class PairingView extends StatelessWidget {
   final PairPhase phase;
   final String detail;
+  final String? stage;
+  final bool scanMode;
+  final ValueChanged<bool>? onScanModeChanged;
+  final VoidCallback? onRetryWithScan;
   final VoidCallback onPair;
   final VoidCallback? onSkip;
 
@@ -235,6 +306,10 @@ class PairingView extends StatelessWidget {
     required this.phase,
     required this.onPair,
     this.detail = '',
+    this.stage,
+    this.scanMode = false,
+    this.onScanModeChanged,
+    this.onRetryWithScan,
     this.blocker,
     this.onSkip,
     this.resetEntry,
@@ -280,6 +355,10 @@ class PairingView extends StatelessWidget {
                 entry: entry,
                 openLink: openLink,
                 bondRefused: phase == PairPhase.bondRefused),
+            if (stage != null && stage!.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              Text(stage!, style: F.cap.copyWith(color: p.ink3)),
+            ],
             if (phase == PairPhase.failed && detail.isNotEmpty) ...[
               const SizedBox(height: S.x3),
               _Detail(detail),
@@ -287,6 +366,18 @@ class PairingView extends StatelessWidget {
             const SizedBox(height: S.x4),
             BigButton(_cta(c, phase),
                 icon: LucideIcons.refreshCw, color: C.green, onTap: onPair),
+            if (onRetryWithScan != null) ...[
+              const SizedBox(height: S.x3),
+              BigButton(
+                AppLocalizations.of(c)?.pairingRetryWithDirectScan ??
+                    'Pair with direct Bluetooth scan',
+                icon: LucideIcons.bluetoothSearching,
+                color: C.blue,
+                soft: true,
+                onTap: onRetryWithScan,
+              ),
+            ],
+            ..._scanModeRow(c, false),
             const SizedBox(height: S.x4),
             // The maker's page sits in the steps above when they are general
             // ones; the card does not offer it twice.
@@ -303,6 +394,50 @@ class PairingView extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Direct-scan switch for guest hosts (LiveContainer) where ASK picker
+  /// authorization belongs to the host app rather than Edge.
+  List<Widget> _scanModeRow(BuildContext c, bool busy) {
+    if (onScanModeChanged == null || phase == PairPhase.paired) return const [];
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return [
+      const SizedBox(height: S.x4),
+      Surface(
+        elevation: 0,
+        color: p.card2,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l?.pairingDirectScanTitle ?? 'Direct Bluetooth scan',
+                    style: F.body.copyWith(
+                      color: p.ink,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: S.x1),
+                  Text(
+                    l?.pairingDirectScanSub ??
+                        'Use inside LiveContainer or when the system picker does not attach',
+                    style: F.cap.copyWith(color: p.ink2),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: S.x3),
+            Switch(
+              value: scanMode,
+              onChanged: busy ? null : onScanModeChanged,
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 
   /// "Skip for now" and its note; nothing when there is no way to skip.
@@ -367,12 +502,28 @@ class PairingView extends StatelessWidget {
               const SizedBox(height: S.x8),
               Center(child: CircularProgressIndicator(color: p.on(C.blue))),
             ],
+            if (stage != null && stage!.isNotEmpty) ...[
+              const SizedBox(height: S.x3),
+              Text(stage!, style: F.cap.copyWith(color: p.ink3)),
+            ],
             ..._advice(c, phase, detail),
             const SizedBox(height: S.x8),
             BigButton(_cta(c, phase),
                 icon: LucideIcons.radio,
                 color: C.blue,
                 onTap: busy ? null : onPair),
+            if (onRetryWithScan != null && !busy) ...[
+              const SizedBox(height: S.x3),
+              BigButton(
+                AppLocalizations.of(c)?.pairingRetryWithDirectScan ??
+                    'Pair with direct Bluetooth scan',
+                icon: LucideIcons.bluetoothSearching,
+                color: C.green,
+                soft: true,
+                onTap: onRetryWithScan,
+              ),
+            ],
+            ..._scanModeRow(c, busy),
             ..._skip(c),
           ],
         ),
@@ -464,6 +615,12 @@ class PairingView extends StatelessWidget {
                 'Then come back and tap Try again',
             icon: LucideIcons.unlink,
           ),
+          if (detail.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            _Detail(detail),
+          ],
+        ],
+      PairPhase.cancelled => [
           if (detail.isNotEmpty) ...[
             const SizedBox(height: S.x3),
             _Detail(detail),
