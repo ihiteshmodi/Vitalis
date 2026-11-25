@@ -1021,6 +1021,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'timeline': (_sub(b, 'series')?['hrv_timeline'] as List?) ?? const [],
       'rmssd': _scalar(b, 'rmssd'),
       'sdnn': _scalar(b, 'sdnn'),
+      'sdnn_window': _scalar(b, 'sdnn_window'),
       'ln_rmssd': _scalar(b, 'ln_rmssd'),
       'baseline': await _seriesMean('rmssd', before: served),
       // Which estimator `rmssd` came from: the sleep-session mean when this

@@ -49,6 +49,8 @@ import '../../models/activity_suggestion.dart';
 import '../../notify/battery_forecast.dart'
     show BatteryForecast, BatterySample;
 import '../screens/detected_activities.dart';
+import '../screens/overnight_hrv_card.dart'
+    show OvernightHrvCard, OvernightHrvData;
 import '../screens/sync_status_sheet.dart' show SyncProgressCard;
 import 'battery_history_card.dart' show BatteryHistoryCard;
 import '../guides/help_entry.dart';
@@ -1318,6 +1320,23 @@ Map<String, Widget> extraCases() => {
       'battery_history_empty': BatteryHistoryCard(
         now: DateTime(2026, 8, 16, 12, 0),
         samples: const [],
+      ),
+      'overnight_hrv_populated': OvernightHrvCard(
+        data: OvernightHrvData(
+          timeline: [
+            for (var i = 0; i < 48; i++)
+              (
+                t: DateTime(2026, 8, 16, 0, 0).millisecondsSinceEpoch ~/ 1000 +
+                    i * 300,
+                v: 76.0 + (i % 7) * 5.0,
+              ),
+          ],
+          rmssdMean: 91.0,
+          sdnn: 84.0,
+        ),
+      ),
+      'overnight_hrv_empty': const OvernightHrvCard(
+        data: OvernightHrvData(),
       ),
     };
 

@@ -36,6 +36,7 @@ import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
 import 'naps.dart';
+import 'overnight_hrv_card.dart';
 import 'rough_night.dart';
 
 /// Nights of history before a personal normal is claimed at all. Below this the
@@ -226,6 +227,7 @@ class SleepData {
   ///   * [longestSleepMin] — the longest unbroken stretch; never bridges a hole.
   ///   * [solMin] — sleep-onset latency, and ONLY on a user-set window.
   final double? unobservedMin, awakenings, longestSleepMin, solMin;
+  final OvernightHrvData? overnightHrv;
 
   const SleepData({
     this.day,
@@ -245,6 +247,7 @@ class SleepData {
     this.longestSleepMin,
     this.solMin,
     this.deviceNights = const [],
+    this.overnightHrv,
   });
 
   bool get hasNight => night['duration_min'] is num;
@@ -366,6 +369,11 @@ class SleepData {
       // A repository without per-device nights: ours only.
     }
     final timeline = await repo.getDayTimeline(day);
+    OvernightHrvData? overnightHrv;
+    try {
+      final parsed = OvernightHrvData.fromMap(await repo.getDayHrv(day));
+      if (parsed.hasAnyData) overnightHrv = parsed;
+    } catch (_) {}
     final cd = await repo.getInsights();
     final coach = cd['sleep_coach'];
     final needEnv = coach is Map ? coach['need'] : null;
@@ -417,6 +425,7 @@ class SleepData {
       longestSleepMin: longest,
       solMin: sol,
       deviceNights: deviceNights,
+      overnightHrv: overnightHrv,
     );
   }
 }
@@ -909,6 +918,10 @@ class _SleepDetailState extends State<SleepDetail> with RevisionReload {
       // ── 6 · THE SIGNALS UNDERNEATH ──
       Section(l?.sleepDetailOvernightSection ?? 'Overnight signals',
           _overnight(c, p, d)),
+      if (d.overnightHrv != null && d.overnightHrv!.hasAnyData) ...[
+        const SizedBox(height: S.x5),
+        OvernightHrvCard(data: d.overnightHrv!),
+      ],
 
       // ── 7 · ONE TAKEAWAY ──
       // Tonight's need, debt and bedtime come from today's cross-day rollup

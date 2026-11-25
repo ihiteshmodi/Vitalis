@@ -29,6 +29,7 @@ import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
+import 'overnight_hrv_card.dart';
 import '../profile/devices.dart'
     show
         DeviceFilter,
@@ -533,6 +534,9 @@ class MetricData {
   /// for `skin_temp`).
   final String? unitOverride;
 
+  /// Latest overnight 5-min HRV curve + Min/Median/Mean/Max/SDNN for `key == 'hrv'`.
+  final OvernightHrvData? overnightHrv;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -547,6 +551,7 @@ class MetricData {
     this.viewingDeviceId,
     this.baselines,
     this.unitOverride,
+    this.overnightHrv,
   });
 
   static Future<MetricData> load(
@@ -592,6 +597,15 @@ class MetricData {
         if (b is Map) baselines = b.cast<String, dynamic>();
       } catch (_) {}
     }
+    OvernightHrvData? overnightHrv;
+    if (key == 'hrv') {
+      try {
+        final targetDay = days.isNotEmpty ? days.first : todayLabel();
+        final hrvMap = await repo.getDayHrv(targetDay);
+        final parsed = OvernightHrvData.fromMap(hrvMap);
+        if (parsed.hasAnyData) overnightHrv = parsed;
+      } catch (_) {}
+    }
     final coverage = _coverageOf(chart['coverage_devices']);
     final recording = _coverageOf(chart['coverage_recording']);
     return MetricData(
@@ -611,6 +625,7 @@ class MetricData {
       // viewingDeviceId stays null: see the field's doc.
       baselines: baselines,
       unitOverride: chart['unit'] as String?,
+      overnightHrv: overnightHrv,
     );
   }
 }
@@ -1061,6 +1076,12 @@ class _MetricDetailState extends State<MetricDetail> {
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
         _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks, d),
+        if (widget.metricKey == 'hrv' &&
+            d.overnightHrv != null &&
+            d.overnightHrv!.hasAnyData) ...[
+          const SizedBox(height: S.x5),
+          OvernightHrvCard(data: d.overnightHrv!),
+        ],
         // Today's count against the goal set on this screen's own edit
         // affordance — a trend average has no goal to be measured against, so
         // this stays win == 1 only, same gate as the Breakdown link below.

@@ -18479,5 +18479,17 @@
       "delta": {"type": "String"},
       "unit": {"type": "String"}
     }
-  }
+  },
+  "overnightHrvTitle": "Overnight HRV (5-min windows)",
+  "@overnightHrvTitle": {"description": "Title of the overnight 5-minute HRV curve card on HRV Detail and Sleep Detail."},
+  "overnightHrvEmpty": "No overnight 5-minute HRV windows recorded yet",
+  "@overnightHrvEmpty": {"description": "Empty state on the overnight HRV card."},
+  "overnightHrvMin": "Min",
+  "@overnightHrvMin": {"description": "Minimum overnight 5-min HRV stat label."},
+  "overnightHrvMedian": "Median",
+  "@overnightHrvMedian": {"description": "Median overnight 5-min HRV stat label."},
+  "overnightHrvMean": "Mean",
+  "@overnightHrvMean": {"description": "Mean overnight HRV stat label."},
+  "overnightHrvMax": "Max",
+  "@overnightHrvMax": {"description": "Maximum overnight 5-min HRV stat label."}
 }
