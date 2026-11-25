@@ -57,6 +57,7 @@ import '../compute/vendor_sleep.dart' show VendorEpoch, VendorNight;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import '../compute/step_calibration_fit.dart';
+import '../notify/battery_forecast.dart' show BatterySample;
 import '../sync/sync_policy.dart' show isPlausibleUnix;
 import 'step_calibration.dart';
 import '../sync/reset_gate.dart';
@@ -8809,6 +8810,31 @@ class LocalDb {
   }) async {
     final db = await instance;
     return db.query('band_battery', orderBy: 'ts DESC', limit: limit);
+  }
+
+  /// All battery percentage observations at or after [sinceSec], ordered oldest
+  /// first so the 24h / 7d / 30d battery history chart never truncates long
+  /// windows at an arbitrary row limit.
+  static Future<List<BatterySample>> bandBatterySamplesSince(
+    int sinceSec,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'band_battery',
+      columns: const ['ts', 'battery_pct', 'charging'],
+      where: 'ts >= ? AND battery_pct IS NOT NULL',
+      whereArgs: [sinceSec],
+      orderBy: 'ts ASC',
+    );
+    return [
+      for (final r in rows)
+        if (r['ts'] != null && r['battery_pct'] != null)
+          BatterySample(
+            tsSec: (r['ts'] as num).toInt(),
+            pct: (r['battery_pct'] as num).toDouble(),
+            charging: (r['charging'] as num?)?.toInt() == 1,
+          ),
+    ];
   }
 
   /// A simple, honest battery-health readout derived from the stored series.

@@ -46,8 +46,11 @@ import '../../ai/nightly_sweep.dart' show SweepFinding;
 import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
+import '../../notify/battery_forecast.dart'
+    show BatteryForecast, BatterySample;
 import '../screens/detected_activities.dart';
 import '../screens/sync_status_sheet.dart' show SyncProgressCard;
+import 'battery_history_card.dart' show BatteryHistoryCard;
 import '../guides/help_entry.dart';
 import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
@@ -1291,6 +1294,31 @@ Map<String, Widget> extraCases() => {
           const RoughNightCard(night: _roughBare, ask: 'on'),
       'rough_night_declined':
           const RoughNightCard(night: _roughTwoSign, ask: 'never'),
+      'battery_history_populated': BatteryHistoryCard(
+        now: DateTime(2026, 8, 16, 12, 0),
+        samples: [
+          for (var i = 0; i < 16; i++)
+            BatterySample(
+              tsSec: DateTime(2026, 8, 16, 12, 0).millisecondsSinceEpoch ~/
+                      1000 -
+                  (15 - i) * 3600,
+              pct: 92.0 - i * 0.4,
+              charging: false,
+            ),
+        ],
+        forecast: BatteryForecast(
+          samplesUsed: 16,
+          spanUsed: Motion.tick * (15 * 3600),
+          drainPctPerHour: 0.4,
+          currentPct: 86.0,
+          predictedPctAtWake: 81.0,
+          predictedEmptyAt: DateTime(2026, 8, 25, 12, 0),
+        ),
+      ),
+      'battery_history_empty': BatteryHistoryCard(
+        now: DateTime(2026, 8, 16, 12, 0),
+        samples: const [],
+      ),
     };
 
 /// The longest realistic night: every sign fired and every knowable known.

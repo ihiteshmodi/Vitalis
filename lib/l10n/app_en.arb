@@ -18445,5 +18445,29 @@
   "@syncRelativeHoursAgo": {
     "description": "Relative timestamp in hours.",
     "placeholders": {"hours": {"type": "int"}}
-  }
+  },
+  "batteryHistoryTitle": "Battery history",
+  "@batteryHistoryTitle": {"description": "Title of the battery level history chart on Device Detail."},
+  "batteryHistoryRange24h": "24h",
+  "@batteryHistoryRange24h": {"description": "24-hour range tab on the battery history chart."},
+  "batteryHistoryRange7d": "7d",
+  "@batteryHistoryRange7d": {"description": "7-day range tab on the battery history chart."},
+  "batteryHistoryRange30d": "30d",
+  "@batteryHistoryRange30d": {"description": "30-day range tab on the battery history chart."},
+  "batteryHistoryEmpty": "No battery readings in this window yet",
+  "@batteryHistoryEmpty": {"description": "Empty state when no battery readings exist in the chosen window."},
+  "batteryHistoryDrainSummary": "~{perHour}%/hr · ~{perDay}%/day",
+  "@batteryHistoryDrainSummary": {
+    "description": "Drain rate summary in percent per hour and percent per day.",
+    "placeholders": {
+      "perHour": {"type": "String"},
+      "perDay": {"type": "String"}
+    }
+  },
+  "batteryHistoryChargingNow": "Charging now",
+  "@batteryHistoryChargingNow": {"description": "Status line under the battery chart when the band is on the charger."},
+  "batteryHistoryNeedSpan": "Drain rate appears after 2 hours off the charger",
+  "@batteryHistoryNeedSpan": {"description": "Status line when the current off-charger run is still shorter than 2 hours."},
+  "batteryHistoryChargeMarksFootnote": "Dotted lines mark when the band went on the charger.",
+  "@batteryHistoryChargeMarksFootnote": {"description": "Footnote explaining dotted vertical charge markers on the battery chart."}
 }

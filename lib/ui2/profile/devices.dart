@@ -89,6 +89,8 @@ import '../pairing/pair_text.dart' show pairL10n, slotPill;
 import '../../ble/slot_comparison.dart' show DeviceSlot;
 import '../pairing/device_slot_card.dart'
     show DeviceSlotCard, pairedDeviceSlot;
+import 'battery_history_card.dart'
+    show BatteryHistoryCard, formatBatteryTimeLeft;
 import 'firmware_flash_screen.dart' show FirmwareFlashScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
@@ -2017,6 +2019,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// got", and the answer was already being calculated and only ever spent on a
   /// notification they may have dismissed.
   BatteryForecast? _forecast;
+  List<BatterySample>? _batterySamples;
 
   /// This page shows the band's live BPM, so it owns the HR stream while
   /// mounted. Captured for `dispose`, which must not read `context`.
@@ -2048,25 +2051,23 @@ class _DeviceDetailState extends State<DeviceDetail> {
 
   Future<void> _loadForecast() async {
     try {
-      final rows = await LocalDb.recentBandBatterySamples(limit: 400);
       final now = DateTime.now();
+      final sinceSec = now.millisecondsSinceEpoch ~/ 1000 - 30 * 86400;
+      final samples = await LocalDb.bandBatterySamplesSince(sinceSec);
       final f = const BatteryForecaster().forecast(
-        samples: [
-          for (final r in rows)
-            if (r['battery_pct'] != null && r['ts'] != null)
-              BatterySample(
-                tsSec: (r['ts'] as num).toInt(),
-                pct: (r['battery_pct'] as num).toDouble(),
-                charging: (r['charging'] as num?)?.toInt() == 1,
-              ),
-        ],
+        samples: samples,
         now: now,
         // Only `predictedEmptyAt` is read below, and it does not depend on the
         // wake time — the projection to a wake time is the notification's
         // question, not this screen's.
         wakeAt: now,
       );
-      if (mounted) setState(() => _forecast = f);
+      if (mounted) {
+        setState(() {
+          _batterySamples = samples;
+          _forecast = f;
+        });
+      }
     } catch (_) {
       // A projection is a nicety. The screen's real job is the band's state.
     }
@@ -2105,6 +2106,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
             },
       health: _health,
       forecast: _forecast,
+      batterySamples: _batterySamples,
       onFind: app?.buzzBand,
       onRestart: (s.isBand && app != null && app.isConnected && !app.syncingNow)
           ? () => _confirmRestartBand(c, app, s.displayName(c))
@@ -2593,6 +2595,12 @@ class DeviceDetailView extends StatelessWidget {
   /// nothing.
   final BatteryForecast? forecast;
 
+  /// Historical battery readings for the 24h / 7d / 30d battery history card.
+  final List<BatterySample>? batterySamples;
+
+  /// Optional clock anchor for deterministic tests and gallery fixtures.
+  final DateTime? now;
+
   /// Opens the image-install screen. Non-null only on a WHOOP 5 band's page;
   /// null hides the row.
   final VoidCallback? onInstallImage;
@@ -2611,7 +2619,9 @@ class DeviceDetailView extends StatelessWidget {
       this.wornOnUnknown = false,
       this.onWearing,
       this.health,
-      this.forecast});
+      this.forecast,
+      this.batterySamples,
+      this.now});
 
   @override
   Widget build(BuildContext c) {
@@ -2768,6 +2778,14 @@ class DeviceDetailView extends StatelessWidget {
                       DeviceUseSwitch(
                           deviceId: s.deviceId!, adapterId: family),
                   ],
+                  if (s.isBand && batterySamples != null) ...[
+                    BatteryHistoryCard(
+                      samples: batterySamples!,
+                      forecast: forecast,
+                      now: now,
+                    ),
+                    const SizedBox(height: S.x5),
+                  ],
                   // Band rows only. The phone has no radio link and no battery
                   // this app can read, so "Not reported since the last
                   // connection" named a connection it does not have — on the
@@ -2826,7 +2844,7 @@ class DeviceDetailView extends StatelessWidget {
                                   'Not reported since the last connection')
                               : [
                                   if (s.charging) (l?.devicesCharging ?? 'Charging'),
-                                  ?_timeLeft(forecast, l),
+                                  ?_timeLeft(forecast, l, now: now),
                                   ?_chargeHistory(health, l),
                                 ].join(' · '),
                           chevron: false),
@@ -2955,17 +2973,8 @@ class DeviceDetailView extends StatelessWidget {
 /// that only moves in whole points, so it does not support a time of day, and
 /// printing one would claim a precision this cannot carry. "About" is doing
 /// real work in that sentence.
-String? _timeLeft(BatteryForecast? f, AppLocalizations? l) {
-  final empty = f?.predictedEmptyAt;
-  if (empty == null) return null;
-  final left = empty.difference(DateTime.now());
-  if (left.isNegative) return null;
-  final h = left.inHours;
-  if (h < 1) return l?.devicesBatteryUnderAnHourLeft ?? 'under an hour left';
-  if (h < 36) return l?.devicesBatteryHoursLeft(h) ?? 'about $h h left';
-  final d = (h / 24).round();
-  return l?.devicesBatteryDaysLeft(d) ?? 'about $d days left';
-}
+String? _timeLeft(BatteryForecast? f, AppLocalizations? l, {DateTime? now}) =>
+    formatBatteryTimeLeft(f, l, now: now);
 
 /// "12 charges logged, up to 4,180 mV" — or null when there is no history to
 /// report yet. Two facts about this band and nothing derived from them: nothing
