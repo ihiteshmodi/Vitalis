@@ -26,6 +26,17 @@ abstract final class Wearing {
 const double kStepFactorMin = 0.5;
 const double kStepFactorMax = 2.0;
 
+/// User-configurable on-chip step divisor. Defaults to 1.0 (zero hardcoded
+/// division) and clamps to [kMinStepDivisor, kMaxStepDivisor].
+const double kDefaultStepDivisor = 1.0;
+const double kMinStepDivisor = 0.5;
+const double kMaxStepDivisor = 30.0;
+
+double clampStepDivisor(double? raw) {
+  if (raw == null || !raw.isFinite || raw <= 0) return kDefaultStepDivisor;
+  return raw.clamp(kMinStepDivisor, kMaxStepDivisor).toDouble();
+}
+
 /// Pseudo-days of factor 1.0 blended into the fit.
 const double kStepFactorPriorWeight = 3.0;
 
@@ -116,10 +127,17 @@ StepCalibrationProfile estimateStepCalibration(
   );
 }
 
-int applyStepCalibration(int rawTicks, StepCalibrationProfile? profile) {
-  if (rawTicks <= 0 || profile == null || !profile.isCalibrated) return rawTicks;
-  final corrected = (rawTicks * profile.factor).round();
-  return corrected.clamp(0, (rawTicks * kStepFactorMax).ceil());
+int applyStepCalibration(
+  int rawTicks,
+  StepCalibrationProfile? profile, {
+  double userDivisor = kDefaultStepDivisor,
+}) {
+  if (rawTicks <= 0) return rawTicks;
+  final factor =
+      (profile != null && profile.isCalibrated) ? profile.factor : 1.0;
+  final div = clampStepDivisor(userDivisor);
+  final scaled = (rawTicks * factor / div).round();
+  return scaled < 0 ? 0 : scaled;
 }
 
 /// 0.9 uncalibrated (what the counter rung always published), rising with

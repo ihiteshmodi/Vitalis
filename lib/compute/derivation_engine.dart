@@ -1925,7 +1925,12 @@ import 'vendor_sleep.dart';
 // `RecoveryScorer.scoreMetric` (55% HRV, 20% RHR, 15% Sleep performance,
 // 5% Resp, 5% Skin Temp; Winsorized-EWMA personal baselines with 4-night seed
 // -> scores from Night 5; logistic k=1.6, z0=-0.20 anchored at ~58%).
-const int kAlgoVersion = 129;
+// 129 → 130 (WHOOP 5.0 steps walk/run activity_class filter + user divisor):
+// `counterDeltasFromSubstrate` / `counterTicksPerWindow` /
+// `hardwareStepSpansFromCounter` credit only locomotion deltas
+// (`activity_class` 1=walk, 2=run) whenever `activity_class` is present on the
+// substrate, and apply `Prefs.stepDivisor` (default 1.0, clamped 0.5..30.0).
+const int kAlgoVersion = 130;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -10066,8 +10071,12 @@ class DerivationEngine {
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
     final rawBand = counter?.total;
-    final calibratedBand =
-        rawBand == null ? null : applyStepCalibration(rawBand, profile);
+    final userDivisor = clampStepDivisor(
+      Prefs.getDouble(Prefs.stepDivisor, kDefaultStepDivisor),
+    );
+    final calibratedBand = rawBand == null
+        ? null
+        : applyStepCalibration(rawBand, profile, userDivisor: userDivisor);
     final useBand = calibratedBand != null &&
         calibratedBand > 0 &&
         calibratedBand > liveStepsReal;
@@ -10088,10 +10097,12 @@ class DerivationEngine {
       'band_measured': rawBand,
       if (counter != null && wearing != 0)
         'counter_wearing': wearingName(wearing),
-      if (calibrated)
+      if (calibrated || (useBand && (userDivisor - kDefaultStepDivisor).abs() > 1e-6))
         'counter_calibration': <String, dynamic>{
-          'factor': profile.factor,
-          'n_days': profile.nDays,
+          'factor': profile?.factor ?? 1.0,
+          'n_days': profile?.nDays ?? 0,
+          if ((userDivisor - kDefaultStepDivisor).abs() > 1e-6)
+            'user_divisor': userDivisor,
         },
       if (counter != null)
         'counter_coverage': <String, dynamic>{

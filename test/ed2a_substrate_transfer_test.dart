@@ -16,7 +16,8 @@ import 'package:openstrap_edge/compute/substrate.dart';
 import 'support/dart_source.dart';
 
 const _intKeys = ['ts_sec', 'hr', 'spo2_red', 'spo2_ir', 'skin_temp',
-    'skin_contact', 'step_count', 'hr_valid', 'band_sleep_state'];
+    'skin_contact', 'step_count', 'hr_valid', 'band_sleep_state',
+    'activity_class'];
 const _doubleKeys = ['rr_ts_ms', 'rr_ms', 'ax', 'ay', 'az'];
 const _start = 1577923200; // existing two_device_day fixture, UTC
 
@@ -31,7 +32,7 @@ Map<String, dynamic> _columns() => {
   'spo2_red': <int>[0, 1, 65535], 'spo2_ir': <int>[123, 0, 65534],
   'skin_temp': <int>[30001, 0, 30002], 'skin_contact': <int>[1, 0, -1],
   'step_count': <int>[65535, 0, -1], 'hr_valid': <int>[1, 0, -1],
-  'band_sleep_state': <int>[1, 0, -1],
+  'band_sleep_state': <int>[1, 0, -1], 'activity_class': <int>[1, 2, -1],
   'device_family': 'gen5', 'device_ids': ['secondary', '', 'secondary'],
 };
 
@@ -241,7 +242,7 @@ void main() {
       markTestSkipped('committed golden is UTC; run this test with TZ=UTC');
       return;
     }
-    expect(kAlgoVersion, 127, reason: 'ED-2b repins analytics; transfer remains exact');
+    expect(kAlgoVersion, 130, reason: 'ED-2b repins analytics; transfer remains exact');
     final fixture = _fixture();
     final baseline = substrateFromDecodedPage(fixture.frames, fixture.rr);
     final transferred = Substrate.fromTransfer(baseline.toJson());

@@ -41,6 +41,8 @@ class Prefs {
 
   // ── synchronous read (fall back to default until loaded) ────────────────────
   static int getInt(String key, int fallback) => _sp?.getInt(key) ?? fallback;
+  static double getDouble(String key, double fallback) =>
+      _sp?.getDouble(key) ?? fallback;
   static String getString(String key, String fallback) =>
       _sp?.getString(key) ?? fallback;
   static bool getBool(String key, bool fallback) =>
@@ -49,6 +51,10 @@ class Prefs {
   // ── fire-and-forget write (kept in sync with the cache for immediate reads) ──
   static void setInt(String key, int value) {
     _sp?.setInt(key, value);
+  }
+
+  static void setDouble(String key, double value) {
+    _sp?.setDouble(key, value);
   }
 
   static void setString(String key, String value) {
@@ -120,6 +126,9 @@ class Prefs {
   /// (needed inside host containers such as LiveContainer where ASK's approval
   /// attaches to the host bundle rather than the guest app).
   static const String pairingScanMode = 'ble.pairing_scan_mode';
+
+  /// User-configurable WHOOP 5.0 on-chip step divisor (1.0 default, 0.5..30.0).
+  static const String stepDivisor = 'steps.user_divisor';
 
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.

@@ -51,6 +51,7 @@ const _dynamicReads = <String, List<String>>{
   // The typed wrappers; each caller passes a literal or a const that is
   // scanned like any other read.
   'prefs.dart|key|int': [],
+  'prefs.dart|key|double': [],
   'prefs.dart|key|string': [],
   'prefs.dart|key|bool': [],
 };

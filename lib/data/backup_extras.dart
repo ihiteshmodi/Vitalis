@@ -168,6 +168,7 @@ const Map<String, String> kPrefTypes = {
   'rough_night.dismissed': 'string',
   'share.map_tiles': 'bool',
   'sleep_hmm_stages': 'bool',
+  'steps.user_divisor': 'double',
   'theme_choice': 'string',
   'ui.shell_tab': 'int',
   'ui.shell_tab.v2': 'int',

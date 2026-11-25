@@ -265,6 +265,10 @@ class Substrate {
   /// analytics band_offset.dart. Read it through [bandSleepStateSlice].
   final List<int> bandSleepState;
 
+  /// On-chip activity classification per second (`1` = walk, `2` = run,
+  /// `0` = still/non-locomotion, `-1` = absent).
+  final List<int> activityClass;
+
   /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
   ///
   /// Stamped at ingest into `decoded_onehz.device_family` and carried here so
@@ -327,6 +331,7 @@ class Substrate {
     List<int> stepCount = const [],
     List<int> hrValid = const [],
     List<int> bandSleepState = const [],
+    List<int> activityClass = const [],
     String? deviceFamily,
     Set<String> deviceIds = const {},
   }) =>
@@ -347,6 +352,7 @@ class Substrate {
         stepCount: stepCount,
         hrValid: hrValid,
         bandSleepState: bandSleepState,
+        activityClass: activityClass,
       );
 
   const Substrate._({
@@ -364,6 +370,7 @@ class Substrate {
     this.stepCount = const [],
     this.hrValid = const [],
     this.bandSleepState = const [],
+    this.activityClass = const [],
     this.deviceFamily,
     this.deviceIds = const {},
   });
@@ -457,6 +464,14 @@ class Substrate {
     return v < 0 ? null : v;
   }
 
+  /// On-chip activity class at second [i] (`1` = walk, `2` = run, `0` = still),
+  /// or `null` when absent (`-1`).
+  int? activityClassAt(int i) {
+    if (i < 0 || i >= activityClass.length) return null;
+    final v = activityClass[i];
+    return v < 0 ? null : v;
+  }
+
   /// The band's own HR-validity verdict for second [i], or `null` when this
   /// record carried none — which is EVERY gen4 second, and every second of a
   /// substrate whose provenance is unknown.
@@ -519,6 +534,7 @@ class Substrate {
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
       bandSleepState: _perSecSlice(bandSleepState, lo, hi),
+      activityClass: _perSecSlice(activityClass, lo, hi),
       deviceFamily: deviceFamily,
       deviceIds: deviceIds,
       rrTsMs: rr.$1,
@@ -549,6 +565,7 @@ class Substrate {
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
       bandSleepState: _perSecSlice(bandSleepState, lo, hi),
+      activityClass: _perSecSlice(activityClass, lo, hi),
       deviceFamily: deviceFamily,
       deviceIds: deviceIds,
       rrTsMs: rr.$1,
@@ -616,6 +633,7 @@ class Substrate {
         'step_count': stepCount,
         'hr_valid': hrValid,
         'band_sleep_state': bandSleepState,
+        'activity_class': activityClass,
         // Null (unknown provenance) is a real answer — emit the key regardless.
         'device_family': deviceFamily,
         'device_ids': deviceIds.toList(),
@@ -689,6 +707,10 @@ class Substrate {
       // Same reason again: absent is -1, and 0 is a real "wake".
       bandSleepState: () {
         final l = ints(m, 'band_sleep_state');
+        return l.length == n ? l : List<int>.filled(n, -1);
+      }(),
+      activityClass: () {
+        final l = ints(m, 'activity_class');
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
       deviceFamily: m['device_family'] as String?,
@@ -842,6 +864,7 @@ Substrate decodeSubstrate(List<String> hexes) {
     hrValid: List<int>.filled(n, -1),
     // Raw-hex replay carries no band envelope either: ABSENT.
     bandSleepState: List<int>.filled(n, -1),
+    activityClass: List<int>.filled(n, -1),
   );
 }
 
@@ -946,6 +969,19 @@ class CounterDeltas {
   final int sampleCount;
 }
 
+bool _substrateHasActivityClasses(Substrate sub) {
+  for (var i = 0; i < sub.activityClass.length; i++) {
+    if (sub.activityClass[i] >= 0) return true;
+  }
+  return false;
+}
+
+bool _shouldCreditStepDelta(Substrate sub, int i, bool hasActivityClasses) {
+  if (!hasActivityClasses) return true;
+  final cls = sub.activityClassAt(i);
+  return cls == 1 || cls == 2;
+}
+
 CounterDeltas? counterDeltasFromSubstrate(
   Substrate sub, {
   required int? cumulativeCounterModulus,
@@ -953,6 +989,7 @@ CounterDeltas? counterDeltasFromSubstrate(
 }) {
   final wrap = cumulativeCounterModulus;
   if (wrap == null || wrap <= 0) return null;
+  final hasClasses = _substrateHasActivityClasses(sub);
   int? prev;
   int? prevTs;
   var total = 0;
@@ -972,7 +1009,7 @@ CounterDeltas? counterDeltasFromSubstrate(
       final delta = _creditedCounterDelta(prev, c, gap, wrap, maxStepsPerSecond);
       if (delta == null) {
         dropped++;
-      } else {
+      } else if (_shouldCreditStepDelta(sub, i, hasClasses)) {
         total += delta;
       }
     }
@@ -1014,6 +1051,7 @@ List<int?>? counterTicksPerWindow(
 }) {
   final wrap = cumulativeCounterModulus;
   if (wrap == null || wrap <= 0) return null;
+  final hasClasses = _substrateHasActivityClasses(sub);
   final ts = <int>[];
   final cum = <int>[]; // credited ticks up to each record
   final breaks = <int>[]; // coverage breaks up to each record
@@ -1029,8 +1067,10 @@ List<int?>? counterTicksPerWindow(
     } else if (t > ts.last) {
       final gap = t - ts.last;
       final d = _creditedCounterDelta(prev!, c, gap, wrap, maxStepsPerSecond);
+      final credited =
+          (d != null && _shouldCreditStepDelta(sub, i, hasClasses)) ? d : 0;
       ts.add(t);
-      cum.add(cum.last + (d ?? 0));
+      cum.add(cum.last + credited);
       breaks.add(breaks.last + (d == null || gap > maxGapSec ? 1 : 0));
     }
     prev = c;
@@ -1073,6 +1113,7 @@ List<({int startTs, int endTs, int steps})>? hardwareStepSpansFromCounter(
 }) {
   final wrap = cumulativeCounterModulus;
   if (wrap == null || wrap <= 0) return null;
+  final hasClasses = _substrateHasActivityClasses(sub);
   final out = <({int startTs, int endTs, int steps})>[];
   int? prev;
   int? prevTs;
@@ -1085,7 +1126,9 @@ List<({int startTs, int endTs, int steps})>? hardwareStepSpansFromCounter(
     if (prev != null && prevTs != null && ts > prevTs) {
       final delta =
           _creditedCounterDelta(prev, c, ts - prevTs, wrap, maxStepsPerSecond);
-      if (delta != null && delta > 0) {
+      if (delta != null &&
+          delta > 0 &&
+          _shouldCreditStepDelta(sub, i, hasClasses)) {
         final last = out.isEmpty ? null : out.last;
         final hour = _localHourStart(ts);
         if (last != null &&

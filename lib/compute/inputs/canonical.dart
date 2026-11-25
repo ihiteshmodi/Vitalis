@@ -533,6 +533,7 @@ Substrate _overlayStrapSessions(Substrate sub,
     'ts_sec': null, 'hr': null, 'ax': 0.0, 'ay': 0.0, 'az': 0.0,
     'spo2_red': 0, 'spo2_ir': 0, 'skin_temp': 0, 'skin_contact': 0,
     'step_count': -1, 'hr_valid': -1, 'band_sleep_state': -1,
+    'activity_class': -1,
   };
   final order = [
     for (var i = 0; i < sub.length; i++)

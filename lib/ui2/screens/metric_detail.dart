@@ -30,6 +30,7 @@ import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
 import 'overnight_hrv_card.dart';
+import '../profile/step_divisor_card.dart';
 import '../profile/devices.dart'
     show
         DeviceFilter,
@@ -1092,6 +1093,14 @@ class _MetricDetailState extends State<MetricDetail> {
               goal: d.stepGoal,
               color: spec.color,
               onSaved: _load),
+          const SizedBox(height: S.x4),
+          StepDivisorCard(
+            onChanged: (_) async {
+              final app = c.read<AppState?>();
+              await app?.reanalyzeAll();
+              if (mounted) await _load();
+            },
+          ),
         ],
         // On Today the window holds one value, and its lowest, typical and
         // highest would all be that same number. The normal range is a

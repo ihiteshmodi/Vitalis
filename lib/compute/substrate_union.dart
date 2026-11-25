@@ -125,7 +125,8 @@ RetainedSubstrate? cutSubstrateUnion(RetainedSubstrate load, int from, int to,
 }
 
 const _intColumns = ['ts_sec', 'hr', 'spo2_red', 'spo2_ir', 'skin_temp',
-    'skin_contact', 'step_count', 'hr_valid', 'band_sleep_state'];
+    'skin_contact', 'step_count', 'hr_valid', 'band_sleep_state',
+    'activity_class'];
 const _motionColumns = ['ax', 'ay', 'az'];
 
 /// Worker-only: join disjoint loads and repair their raw beat axis once across

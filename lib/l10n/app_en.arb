@@ -18491,5 +18491,18 @@
   "overnightHrvMean": "Mean",
   "@overnightHrvMean": {"description": "Mean overnight HRV stat label."},
   "overnightHrvMax": "Max",
-  "@overnightHrvMax": {"description": "Maximum overnight 5-min HRV stat label."}
+  "@overnightHrvMax": {"description": "Maximum overnight 5-min HRV stat label."},
+  "stepDivisorTitle": "Band step divisor",
+  "@stepDivisorTitle": {"description": "Title of the user-configurable band step divisor card."},
+  "stepDivisorSub": "Active: {divisor}× · Divides walk/run band ticks (0.5–30.0, default 1.0)",
+  "@stepDivisorSub": {
+    "description": "Subtitle explaining the active band step divisor.",
+    "placeholders": {"divisor": {"type": "String"}}
+  },
+  "stepDivisorReset": "Reset",
+  "@stepDivisorReset": {"description": "Reset button restoring the 1.0 step divisor."},
+  "stepDivisorApply": "Apply",
+  "@stepDivisorApply": {"description": "Apply button saving a new band step divisor."},
+  "stepDivisorInvalid": "Enter a number between 0.5 and 30.0",
+  "@stepDivisorInvalid": {"description": "Validation message for an invalid step divisor."}
 }

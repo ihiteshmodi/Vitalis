@@ -594,6 +594,7 @@ class _PrepareAccumulator {
   final List<int> stepCount = [];
   final List<int> hrValid = [];
   final List<int> bandSleepState = [];
+  final List<int> activityClass = [];
 
   /// The DISTINCT non-null `device_family` stamps seen across every page fed in
   /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
@@ -708,6 +709,7 @@ class _PrepareAccumulator {
     take(stepCount, 'step_count');
     take(hrValid, 'hr_valid');
     take(bandSleepState, 'band_sleep_state');
+    take(activityClass, 'activity_class');
     ax.addAll(dbls('ax').getRange(0, n));
     ay.addAll(dbls('ay').getRange(0, n));
     az.addAll(dbls('az').getRange(0, n));
@@ -770,6 +772,9 @@ class _PrepareAccumulator {
         : List<int>.filled(sub.length, -1));
     bandSleepState.addAll(sub.bandSleepState.length == sub.length
         ? sub.bandSleepState
+        : List<int>.filled(sub.length, -1));
+    activityClass.addAll(sub.activityClass.length == sub.length
+        ? sub.activityClass
         : List<int>.filled(sub.length, -1));
   }
 
@@ -887,6 +892,7 @@ class _PrepareAccumulator {
       // second this is the hr1Hz owner's row (composeOneHzFrames keeps base
       // columns) — fine for one WHOOP 5.
       bandSleepState.add(_num(row?['band_sleep_state'])?.toInt() ?? -1);
+      activityClass.add(_num(row?['activity_class'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
@@ -949,6 +955,7 @@ class _PrepareAccumulator {
       stepCount: packed(stepCount),
       hrValid: packed(hrValid),
       bandSleepState: packed(bandSleepState),
+      activityClass: packed(activityClass),
       deviceFamily: deviceFamily,
       deviceIds: _deviceIds,
     );

@@ -35,7 +35,7 @@ const _mustTravel = {
   'notif_relay_enabled', 'notif_relay_packages',
   'ui.shell_tab.v2', 'ui.recap_range', 'ui.workouts_range',
   'ui.wearable_show_estimates', 'ui.wearable_side_by_side',
-  'sleep_hmm_stages',
+  'sleep_hmm_stages', 'steps.user_divisor',
   'rough_night.ask', 'rough_night.dismissed',
   // Existing history/dedupe state travels to avoid repeated alerts/imports.
   'ai.journal_done_day', 'last_recovery_notif_day', 'last_stepgoal_day',

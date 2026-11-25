@@ -53,6 +53,7 @@ import '../screens/overnight_hrv_card.dart'
     show OvernightHrvCard, OvernightHrvData;
 import '../screens/sync_status_sheet.dart' show SyncProgressCard;
 import 'battery_history_card.dart' show BatteryHistoryCard;
+import 'step_divisor_card.dart' show StepDivisorCard;
 import '../guides/help_entry.dart';
 import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
@@ -1338,6 +1339,7 @@ Map<String, Widget> extraCases() => {
       'overnight_hrv_empty': const OvernightHrvCard(
         data: OvernightHrvData(),
       ),
+      'step_divisor_card': const StepDivisorCard(),
     };
 
 /// The longest realistic night: every sign fired and every knowable known.

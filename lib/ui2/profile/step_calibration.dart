@@ -42,6 +42,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../screens/metric_detail.dart' show detailLinkRow, detailScaffold;
 import '../ui2.dart';
+import 'step_divisor_card.dart';
 
 class StepCalibrationScreen extends StatefulWidget {
   const StepCalibrationScreen({super.key});
@@ -414,6 +415,13 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
   List<Widget> _overview(BuildContext c, AppLocalizations? l) {
     final p = P.of(c);
     return [
+      StepDivisorCard(
+        onChanged: (_) async {
+          final app = c.read<AppState?>();
+          await app?.reanalyzeAll();
+        },
+      ),
+      const SizedBox(height: S.x4),
       Text(
         l?.stepCalIntro ??
             'Your strap counts steps off its own motion sensor, and how far off '
