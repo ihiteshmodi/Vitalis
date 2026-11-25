@@ -1265,6 +1265,7 @@ class SyncController {
   ///
   /// From TestFlight: "don't get to know if syncing is happening or not".
   bool get syncingNow =>
+      engine.offloadActive ||
       _syncActivity.isActive(DateTime.now().millisecondsSinceEpoch);
 
   String get status => device.connection;
@@ -1348,6 +1349,9 @@ class SyncController {
   /// The `connected -> disconnected` branch of `_onEngineState`: reconnect while
   /// a session is wanted, otherwise hand the foreground lease back.
   void onLinkDropped() {
+    _syncActivity.clear();
+    _syncQuietTimer?.cancel();
+    _syncQuietTimer = null;
     if (_keepAlive && paired != null && !_reconnecting && !device.autoReconnectPaused) {
       _log('Connection dropped — reconnecting…');
       _stopBackfillTimer();

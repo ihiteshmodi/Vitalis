@@ -31,9 +31,12 @@ import 'dart:async';
 import 'dart:ui' as ui show TextDirection;
 
 import 'package:clock/clock.dart' as pc;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
+
+import '../../ble/ble_state.dart' show SyncProgressSnapshot;
 
 import '../../ai/briefing.dart'
     show Briefing, BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
@@ -81,6 +84,7 @@ import 'day_timeline.dart' show DayTimelineScreen;
 import 'metric_detail.dart';
 import 'readiness_detail.dart';
 import 'sleep_detail.dart';
+import 'sync_status_sheet.dart';
 
 // ═══════════════════ shared plumbing ═══════════════════
 
@@ -327,11 +331,37 @@ Widget? batteryLine(BuildContext c) {
 /// loudest is the one where there is no day to show.
 Widget syncedThroughLine(BuildContext c, String? todayId,
     [AppLocalizations? l]) {
-  return Text(
+  bool hasApp = false;
+  try {
+    c.read<AppState>();
+    hasApp = true;
+  } catch (_) {}
+  final line = Text(
     syncedThroughLabel(
         lastDataAtOf(c), todayId, l, bandRecordTimeUnknownOf(c)),
     style: F.cap.copyWith(color: P.of(c).ink3),
   );
+  if (!hasApp) return line;
+  return Pressable(
+    onTap: () => showSyncStatusSheet(c),
+    semanticLabel: l?.syncSheetTitle ?? 'Sync status & Bluetooth log',
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(child: line),
+        const SizedBox(width: S.x1),
+        Icon(LucideIcons.chevronRight, size: 13, color: P.of(c).ink3),
+      ],
+    ),
+  );
+}
+
+ValueListenable<SyncProgressSnapshot>? syncProgressOf(BuildContext c) {
+  try {
+    return c.read<AppState>().engine.syncProgress;
+  } catch (_) {
+    return null;
+  }
 }
 
 bool derivingOf(BuildContext c) {
@@ -2301,6 +2331,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     );
 
     if (syncing) {
+      final progress = syncProgressOf(c);
+      if (progress != null) {
+        return SyncProgressCard(
+          progressListenable: progress,
+          onTap: () => showSyncStatusSheet(c),
+        );
+      }
       return StatusCard(
         l?.homeSyncingTitle ?? 'Syncing with your band',
         l?.homeSyncingBody ?? 'Pulling data now — this can take a few minutes '

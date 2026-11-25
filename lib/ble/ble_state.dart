@@ -1101,6 +1101,9 @@ class SyncActivityWindow {
   /// Records just landed.
   void mark(int nowMs) => _lastMs = nowMs;
 
+  /// Clear immediately on link drop so `syncingNow` never lingers after disconnect.
+  void clear() => _lastMs = 0;
+
   /// True while the last batch is still within [windowMs].
   bool isActive(int nowMs) => _lastMs > 0 && nowMs - _lastMs < windowMs;
 
@@ -2468,6 +2471,123 @@ class NotifyDiag {
     final list = _windowChunks.isEmpty ? 'none' : _windowChunks.join(' ');
     final more = _windowDropped > 0 ? ' (+$_windowDropped more)' : '';
     return 'frames[$frames] chunks[$list]$more';
+  }
+}
+
+/// Compute ring-buffer pages behind at connect from a `GET_DATA_RANGE`
+/// `pages_behind` map (`{written, trim_page, capacity}`).
+///
+/// Mirrors NOOP's `DataRange.pagesBehind`: `written < trim ? written + (cap - trim) : written - trim`.
+/// Returns null when fields are missing or out of bounds — never fabricates a
+/// percentage, because the strap never reports a total pending record count.
+int? pagesBehindFromDataRange(Map<String, dynamic>? pb) {
+  if (pb == null) return null;
+  final w = (pb['written'] as num?)?.toInt();
+  final u = (pb['trim_page'] as num?)?.toInt();
+  final cap = (pb['capacity'] as num?)?.toInt();
+  if (w == null || u == null || cap == null) return null;
+  if (cap <= 0 || cap > 0x00FFFFFF || w < 0 || u < 0 || w >= cap || u >= cap) {
+    return null;
+  }
+  final behind = w < u ? w + (cap - u) : w - u;
+  if (behind < 0 || behind > cap) return null;
+  return behind;
+}
+
+/// Immutable snapshot of live historical sync progress.
+class SyncProgressSnapshot {
+  final bool active;
+  final int chunksPulled;
+  final int recordsPulled;
+  final int? pagesBehindAtConnect;
+  final DateTime? lastCompletedAt;
+
+  const SyncProgressSnapshot({
+    this.active = false,
+    this.chunksPulled = 0,
+    this.recordsPulled = 0,
+    this.pagesBehindAtConnect,
+    this.lastCompletedAt,
+  });
+
+  static const idle = SyncProgressSnapshot();
+
+  SyncProgressSnapshot copyWith({
+    bool? active,
+    int? chunksPulled,
+    int? recordsPulled,
+    int? pagesBehindAtConnect,
+    bool clearPagesBehind = false,
+    DateTime? lastCompletedAt,
+  }) =>
+      SyncProgressSnapshot(
+        active: active ?? this.active,
+        chunksPulled: chunksPulled ?? this.chunksPulled,
+        recordsPulled: recordsPulled ?? this.recordsPulled,
+        pagesBehindAtConnect: clearPagesBehind
+            ? null
+            : (pagesBehindAtConnect ?? this.pagesBehindAtConnect),
+        lastCompletedAt: lastCompletedAt ?? this.lastCompletedAt,
+      );
+}
+
+/// Pure session tracker for live sync progress. Resets on sync start and on
+/// disconnect so session counters can never stay stuck across link drops.
+class SyncProgressTracker {
+  SyncProgressSnapshot _snapshot = SyncProgressSnapshot.idle;
+  SyncProgressSnapshot get snapshot => _snapshot;
+
+  void onConnect() {
+    _snapshot = SyncProgressSnapshot(
+      active: false,
+      chunksPulled: 0,
+      recordsPulled: 0,
+      pagesBehindAtConnect: null,
+      lastCompletedAt: _snapshot.lastCompletedAt,
+    );
+  }
+
+  void onSyncStart() {
+    if (_snapshot.active) return;
+    _snapshot = SyncProgressSnapshot(
+      active: true,
+      chunksPulled: 0,
+      recordsPulled: 0,
+      pagesBehindAtConnect: _snapshot.pagesBehindAtConnect,
+      lastCompletedAt: _snapshot.lastCompletedAt,
+    );
+  }
+
+  void onDataRange(Map<String, dynamic>? pb) {
+    if (_snapshot.pagesBehindAtConnect != null) return;
+    final behind = pagesBehindFromDataRange(pb);
+    if (behind == null) return;
+    _snapshot = _snapshot.copyWith(pagesBehindAtConnect: behind);
+  }
+
+  void onBatchAcked({int recordsInChunk = 0}) {
+    _snapshot = _snapshot.copyWith(
+      active: true,
+      chunksPulled: _snapshot.chunksPulled + 1,
+      recordsPulled: _snapshot.recordsPulled + (recordsInChunk > 0 ? recordsInChunk : 0),
+    );
+  }
+
+  void onSyncFinished({DateTime? now}) {
+    _snapshot = _snapshot.copyWith(
+      active: false,
+      lastCompletedAt: now,
+    );
+  }
+
+  void onDisconnect() {
+    _snapshot = SyncProgressSnapshot(
+      active: false,
+      chunksPulled: 0,
+      recordsPulled: 0,
+      pagesBehindAtConnect: null,
+      lastCompletedAt: _snapshot.lastCompletedAt,
+    );
   }
 }
 

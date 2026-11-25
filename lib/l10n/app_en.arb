@@ -18392,5 +18392,58 @@
   "devicesRestartSent": "Restart command sent — reconnecting shortly.",
   "@devicesRestartSent": {"description": "Snackbar after sending the restart command to the band."},
   "devicesRestartFailed": "Could not restart the band. Check that it is close and not mid-sync.",
-  "@devicesRestartFailed": {"description": "Snackbar when the band restart command could not be sent."}
+  "@devicesRestartFailed": {"description": "Snackbar when the band restart command could not be sent."},
+  "syncProgressTitleChunks": "{count, plural, =1{Syncing with your band · 1 chunk pulled} other{Syncing with your band · {count} chunks pulled}}",
+  "@syncProgressTitleChunks": {
+    "description": "Home syncing card title with live acknowledged chunk count.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "syncProgressPagesBehind": "{count, plural, =1{1 page behind at connect} other{{count} pages behind at connect}}",
+  "@syncProgressPagesBehind": {
+    "description": "Backlog snapshot taken from GET_DATA_RANGE at connect.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "syncProgressRecordsPulled": "{count, plural, =1{1 record saved} other{{count} records saved}}",
+  "@syncProgressRecordsPulled": {
+    "description": "Count of historical records saved during the active sync.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "syncProgressOpenSheet": "Live sync status and log",
+  "@syncProgressOpenSheet": {"description": "Action label on the Home syncing card opening the sync status and Bluetooth log sheet."},
+  "syncSheetTitle": "Sync status & Bluetooth log",
+  "@syncSheetTitle": {"description": "Modal sheet title showing sync progress and live Bluetooth logs."},
+  "syncSheetActiveSub": "Receiving history chunks from your band",
+  "@syncSheetActiveSub": {"description": "Sync sheet subtitle while chunks are arriving."},
+  "syncSheetIdleConnectedSub": "Connected and listening for band data",
+  "@syncSheetIdleConnectedSub": {"description": "Sync sheet subtitle when connected and idle."},
+  "syncSheetDisconnectedSub": "Your band is not connected — bring it close to sync",
+  "@syncSheetDisconnectedSub": {"description": "Sync sheet subtitle when disconnected."},
+  "syncSheetChunksPill": "{count, plural, =1{1 chunk pulled} other{{count} chunks pulled}}",
+  "@syncSheetChunksPill": {
+    "description": "Pill in the sync sheet showing acknowledged chunks.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "syncSheetLastCompleted": "History synced {ago}",
+  "@syncSheetLastCompleted": {
+    "description": "Line in the sync sheet showing relative time since the last completed history sync.",
+    "placeholders": {"ago": {"type": "String"}}
+  },
+  "syncSheetDisabledReason": "Sync now is unavailable while the band is not connected.",
+  "@syncSheetDisabledReason": {"description": "Honest explanation under disabled Sync now button when disconnected."},
+  "syncSheetLogHeading": "LIVE BLUETOOTH LOG",
+  "@syncSheetLogHeading": {"description": "Section heading over scrolling BLE log lines."},
+  "syncSheetLogEmpty": "No Bluetooth events logged yet.",
+  "@syncSheetLogEmpty": {"description": "Empty state for the BLE log list."},
+  "syncRelativeJustNow": "just now",
+  "@syncRelativeJustNow": {"description": "Relative timestamp under 1 minute."},
+  "syncRelativeMinutesAgo": "{minutes}m ago",
+  "@syncRelativeMinutesAgo": {
+    "description": "Relative timestamp in minutes.",
+    "placeholders": {"minutes": {"type": "int"}}
+  },
+  "syncRelativeHoursAgo": "{hours}h ago",
+  "@syncRelativeHoursAgo": {
+    "description": "Relative timestamp in hours.",
+    "placeholders": {"hours": {"type": "int"}}
+  }
 }

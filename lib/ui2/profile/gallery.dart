@@ -32,6 +32,7 @@ import 'package:flutter/rendering.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../ble/ble_state.dart' show SyncProgressSnapshot;
 import '../../coach/coach_config.dart';
 import '../../coach/coach_engine.dart' show CoachSessionMeta;
 import '../../data/day_label.dart';
@@ -46,6 +47,7 @@ import '../../compute/findings.dart';
 import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
 import '../screens/detected_activities.dart';
+import '../screens/sync_status_sheet.dart' show SyncProgressCard;
 import '../guides/help_entry.dart';
 import '../screens/slot_scrub.dart';
 import '../activity/catalogue.dart';
@@ -236,6 +238,17 @@ Map<String, Widget> componentCases() => {
         'The strap was off your wrist between 01:10 and 06:40, so there was '
             'nothing to measure.',
         fix: 'How wear position affects this',
+      ),
+      'sync_progress': SyncProgressCard(
+        progressListenable: ValueNotifier<SyncProgressSnapshot>(
+          const SyncProgressSnapshot(
+            active: true,
+            chunksPulled: 14,
+            recordsPulled: 840,
+            pagesBehindAtConnect: 42,
+          ),
+        ),
+        onTap: () {},
       ),
       'deep_dive': DeepDiveCard('Heart rate variability', '7h 42m', 'ms',
           'Open the full night', C.purple,

@@ -441,6 +441,7 @@ class AppState extends ChangeNotifier {
   /// reset_gate.dart for why that holds and what would break it.
   bool get _resetting => ResetGate.active;
   final List<String> logLines = [];
+  final ValueNotifier<int> logRevision = ValueNotifier<int>(0);
   String _prevConn = 'disconnected';
   // Last battery snapshot pushed to the Band Battery widget — so we only reload
   // the widget when pct/charging actually change (the engine-state hook fires
@@ -2112,7 +2113,10 @@ class AppState extends ChangeNotifier {
       // reached today, else the latest pending day). The foreground heavy finalize
       // still runs in openSession after the backlog fully drains.
       onDataStored: _onDataStored,
-      onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
+      onOffloadState: (active) {
+        _deriveScheduler.setOffloadActive(active);
+        notifyListeners();
+      },
       // Smart Wake Window: piggyback on the engine's own 30 s keep-alive
       // tick rather than a second timer. See _checkSmartWake's doc for the
       // safety argument (short version: this can only ever ADD an early
@@ -3844,6 +3848,7 @@ class AppState extends ChangeNotifier {
 
   void _log(String line) {
     debugPrint('[OpenStrap] $line');
+    logRevision.value++;
     FileLog.write(line);
     logLines.insert(0, line);
     if (logLines.length > 200) logLines.removeLast();

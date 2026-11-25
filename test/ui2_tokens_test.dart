@@ -318,6 +318,9 @@ const _notComponents = {
   'Investigate',
   'JournalCompose', 'JournalFindings',
   'LogFoodSheet', 'CalmBreathing',
+  // Modal bottom sheet over AppState + DraggableScrollableSheet; SyncProgressCard
+  // is in gallery.dart and the sheet is pumped in sync_progress_ui_test.dart.
+  'SyncStatusSheet', 'SyncStatusSheetView',
   // Where the hydration notification lands: a Scaffold route that reads and
   // writes the day's journal metrics. The one control on it — FieldStepper —
   // IS in the gallery.

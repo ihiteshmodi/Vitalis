@@ -2351,6 +2351,14 @@ class BleEngine {
   /// `wrap_count` is a ring wrap counter, NOT a unique batch id — never build
   /// dedupe on it.
   Map<String, dynamic>? get lastPagesBehind => _lastPagesBehind;
+
+  final SyncProgressTracker _syncProgress = SyncProgressTracker();
+
+  /// Live historical sync progress (chunks ACKed + backlog snapshot at connect)
+  /// isolated in a [ValueNotifier] so leaf progress cards update without
+  /// rebuilding whole screens.
+  final ValueNotifier<SyncProgressSnapshot> syncProgress =
+      ValueNotifier<SyncProgressSnapshot>(SyncProgressSnapshot.idle);
   // Lifetime count of GET_DATA_RANGE reads rejected by isCorruptFutureRtc —
   // see the range_oldest/range_newest handler below.
   int _corruptDataRangeCount = 0;
@@ -3206,6 +3214,8 @@ class BleEngine {
       _autoContinue.end();
       _lastBackfillAt = null;
       _successfulBursts = 0;
+      _syncProgress.onConnect();
+      syncProgress.value = _syncProgress.snapshot;
       // _noDurableProgress is deliberately NOT reset here — like _marginalRadio
       // and _postBondLoop above, it counts consecutive bad cycles ACROSS
       // reconnects. Resetting per connection made the escalation unreachable,
@@ -6329,6 +6339,8 @@ class BleEngine {
     // is; this reads a different field.
     final pb = f['pages_behind'];
     if (pb is Map) {
+      _syncProgress.onDataRange(_lastPagesBehind);
+      syncProgress.value = _syncProgress.snapshot;
       _lastPagesBehind =
           Map<String, dynamic>.unmodifiable(pb.cast<String, dynamic>());
       unawaited(_recordPagesBehind(_lastPagesBehind!));
@@ -7924,6 +7936,8 @@ class BleEngine {
       // over — records were banked and the band may advance.
       _noDurableProgress.trimAcked();
       d.noteBatchAcked(); // ACKed and KEEP listening
+      _syncProgress.onBatchAcked(recordsInChunk: d.lastChunkStats?.raws ?? 0);
+      syncProgress.value = _syncProgress.snapshot;
       // Both post-ACK diagnostic rows share one transaction and one commit.
       final postWatch = clock.stopwatch()..start();
       await _bestEffortLedgerWrite(
@@ -8033,6 +8047,8 @@ class BleEngine {
         '${_recordGate.dropped} dropped). Still listening for live records.',
       );
       _setHpsTerminal(_HpsTerminalKind.success, drain: d);
+      _syncProgress.onSyncFinished(now: clock.now());
+      syncProgress.value = _syncProgress.snapshot;
       _noteStored();
       await _onOffloadFinished();
     }
@@ -9576,6 +9592,8 @@ class BleEngine {
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
+    _syncProgress.onDisconnect();
+    syncProgress.value = _syncProgress.snapshot;
     // `_armTime` used to survive teardown, so the marginal-radio detector
     // measured the NEXT session's drop against the PREVIOUS session's arm and
     // permanently downgraded live streams on the evidence of a session that
@@ -9612,6 +9630,12 @@ class BleEngine {
   void _setOffloadActive(bool active) {
     if (_offloadActive == active) return;
     _offloadActive = active;
+    if (active) {
+      _syncProgress.onSyncStart();
+    } else {
+      _syncProgress.onSyncFinished();
+    }
+    syncProgress.value = _syncProgress.snapshot;
     // An offload is the one thing that genuinely needs the fast interval; as
     // soon as it ends the link steps back down (issue #200).
     unawaited(_applyLinkPriority());
