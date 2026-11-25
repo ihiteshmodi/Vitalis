@@ -2200,13 +2200,19 @@ const int _headlineFreezeMarginSec = 60 * 60;
 // ponytail: wall-clock give-up; a persisted "drain complete" marker would be exact.
 const int kOvernightGiveUpSec = 12 * 60 * 60;
 
+/// Minimum post-wake record margin required when `HISTORY_COMPLETE` confirms
+/// the strap's backlog has finished draining ([drainCompleteEdgeSec]). Guards
+/// against settling at 04:04 AM while the user is still asleep (`wake == edge`).
+const int kDrainCompleteWakeMarginSec = 60;
+
 /// Whether a night whose sleep ends at [sleepOffsetSec] is SETTLED: the drained
-/// data edge has moved [_headlineFreezeMarginSec] past the wake, so the window
-/// is no longer just where the sync happened to stop (#448: mid-drain, the
-/// newest record is still inside the night and the stager closes the window at
-/// it, so a partial night and its readiness showed as this morning's). Home and
-/// the readiness freeze both read this, on the same band-only edge
-/// ([LocalDb.lastDecodedRecTs]).
+/// data edge has moved [_headlineFreezeMarginSec] past the wake, OR
+/// `HISTORY_COMPLETE` confirmed the backlog drained past wake by at least
+/// [kDrainCompleteWakeMarginSec], so the window is no longer just where the
+/// sync happened to stop (#448: mid-drain, the newest record is still inside
+/// the night and the stager closes the window at it, so a partial night and its
+/// readiness showed as this morning's). Home and the readiness freeze both read
+/// this, on the same band-only edge ([LocalDb.lastDecodedRecTs]).
 ///
 /// [nowSec] enables the wall-clock give-up. Only Home passes it: a drain that
 /// stalled mid-night looks exactly like a strap that went quiet at wake, and
@@ -2223,6 +2229,7 @@ bool overnightSettled({
   required int? sleepOffsetSec,
   required int dataEdgeSec,
   int? nowSec,
+  int? drainCompleteEdgeSec,
 }) {
   if (sleepOffsetSec == null) {
     if (nowSec == null) return false;
@@ -2231,7 +2238,11 @@ bool overnightSettled({
             dataEdgeSec >= nowSec - _headlineFreezeMarginSec) ||
         nowSec >= dataEdgeSec + kOvernightGiveUpSec;
   }
-  return dataEdgeSec >= sleepOffsetSec + _headlineFreezeMarginSec ||
+  final settledByCompletedDrain = drainCompleteEdgeSec != null &&
+      drainCompleteEdgeSec >= sleepOffsetSec + kDrainCompleteWakeMarginSec &&
+      dataEdgeSec >= sleepOffsetSec + kDrainCompleteWakeMarginSec;
+  return settledByCompletedDrain ||
+      dataEdgeSec >= sleepOffsetSec + _headlineFreezeMarginSec ||
       (nowSec != null && nowSec >= sleepOffsetSec + kOvernightGiveUpSec);
 }
 
@@ -2243,7 +2254,9 @@ bool overnightSettled({
 const int kWakeConfirmMarginSec = 30 * 60;
 
 /// A pin is only trusted for the night whose wake is within this of its own.
-const int kPinWakeToleranceSec = 60 * 60;
+/// 15 minutes absorbs minor daytime re-staging jitter while un-pinning and
+/// recalibrating whenever the user goes back to sleep (sleep-in / continuation).
+const int kPinWakeToleranceSec = 15 * 60;
 
 /// A night whose wake is before this local hour, or that slept less than
 /// [kMinPinSleepSec], is never frozen: the reported 2-instead-of-28 morning was
@@ -2273,9 +2286,14 @@ RecoveryState? recoveryStateOf({
   required int? wakeSec,
   required int dataEdgeSec,
   int? nowSec,
+  int? drainCompleteEdgeSec,
 }) {
   if (overnightSettled(
-      sleepOffsetSec: wakeSec, dataEdgeSec: dataEdgeSec, nowSec: nowSec)) {
+    sleepOffsetSec: wakeSec,
+    dataEdgeSec: dataEdgeSec,
+    nowSec: nowSec,
+    drainCompleteEdgeSec: drainCompleteEdgeSec,
+  )) {
     return RecoveryState.finalReady;
   }
   if (wakeSec == null) return null;
@@ -8093,9 +8111,12 @@ class DerivationEngine {
     if (day.date != todayLabel()) return;
     final hasSleep = day.sleepOffsetSec > day.sleepOnsetSec;
     if (!hasSleep) return;
+    final drainCompleteEdgeSec =
+        await LocalDb.getCursorInt(LocalDb.kHistoryCompleteEdgeCursor);
     final overnightComplete = overnightSettled(
       sleepOffsetSec: day.sleepOffsetSec,
       dataEdgeSec: dataNowSec,
+      drainCompleteEdgeSec: drainCompleteEdgeSec,
     );
     final current = await LocalDb.frozenHeadline();
     final next = nextFrozenHeadline(
@@ -8775,6 +8796,8 @@ class DerivationEngine {
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     final imported = await LocalDb.importedDates();
+    final drainCompleteEdgeSec =
+        await LocalDb.getCursorInt(LocalDb.kHistoryCompleteEdgeCursor);
     final zone = crossDayZoneStamp();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
@@ -8787,6 +8810,7 @@ class DerivationEngine {
           payload,
           today: today,
           imported: imported,
+          drainCompleteEdgeSec: drainCompleteEdgeSec,
         );
         if (rec != null) days.add(rec);
       }
@@ -8900,6 +8924,7 @@ class DerivationEngine {
     Map<String, dynamic> payload, {
     required String today,
     required Set<String> imported,
+    int? drainCompleteEdgeSec,
   }) {
     final rec = _crossDayRecord(row, payload);
     if (rec == null) return null;
@@ -8938,7 +8963,11 @@ class DerivationEngine {
         (row['finalized'] as num?) != 1 &&
         (wakeSec == null ||
             dataEdgeSec == null ||
-            dataEdgeSec < wakeSec + _headlineFreezeMarginSec)) {
+            !overnightSettled(
+              sleepOffsetSec: wakeSec,
+              dataEdgeSec: dataEdgeSec,
+              drainCompleteEdgeSec: drainCompleteEdgeSec,
+            ))) {
       rec['unsettled'] = true;
     }
     // Explicit identity for TODAY-scoped reads. `unsettled` cannot serve

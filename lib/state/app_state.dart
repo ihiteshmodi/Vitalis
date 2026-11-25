@@ -193,6 +193,7 @@ bool recoveryNightSettled({
   required Map<String, dynamic>? payload,
   required int dataEdgeSec,
   required int nowSec,
+  int? drainCompleteEdgeSec,
 }) {
   if (dayId != todayLabel()) return true;
   // A no-sleep window's `value` is the string '—', not a Map.
@@ -204,6 +205,7 @@ bool recoveryNightSettled({
     sleepOffsetSec: offsetMs is num ? offsetMs ~/ 1000 : null,
     dataEdgeSec: dataEdgeSec,
     nowSec: nowSec,
+    drainCompleteEdgeSec: drainCompleteEdgeSec,
   );
 }
 
@@ -2559,6 +2561,8 @@ class AppState extends ChangeNotifier {
         payload: payload,
         dataEdgeSec: await LocalDb.lastDecodedRecTs() ?? 0,
         nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        drainCompleteEdgeSec:
+            await LocalDb.getCursorInt(LocalDb.kHistoryCompleteEdgeCursor),
       )) {
         return;
       }

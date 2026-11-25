@@ -782,6 +782,10 @@ class LocalDb {
   /// no band yet leaves `''`, which whichever band pairs next takes.
   static const String kPendingWornOnPref = 'paired_worn_on';
 
+  /// `sync_cursor` key recording the record frontier (`rec_ts`) at the moment
+  /// `HISTORY_COMPLETE` confirmed the strap's backlog finished draining.
+  static const String kHistoryCompleteEdgeCursor = 'history_complete_edge_ts';
+
   /// The `sync_cursor` name for a per-offloading-device bookmark.
   ///
   /// THE PRIMARY KEEPS THE BARE KEY, FOREVER. This is not cosmetic and it is
@@ -13508,6 +13512,7 @@ class LocalDb {
                   // strap_trim is a live hardware ACK token for one session and
                   // must never travel from a backup.
                   if (name == _kSettingsImported ||
+                      name == kHistoryCompleteEdgeCursor ||
                       name == 'strap_trim' ||
                       name.startsWith('strap_trim:')) {
                     continue;
@@ -14775,6 +14780,7 @@ class LocalDb {
     // how far the band's night has drained. Only for legacy rows without a
     // stored `data_edge_sec`.
     final bandEdgeSec = await lastDecodedRecTs() ?? 0;
+    final drainCompleteEdgeSec = await getCursorInt(kHistoryCompleteEdgeCursor);
     String? latestOvernightDay;
     int? latestOvernightComputedAt;
     String? latestRecoveryDay;
@@ -14839,6 +14845,7 @@ class LocalDb {
           wakeSec: wakeSec,
           dataEdgeSec: edgeSec,
           nowSec: nowSec,
+          drainCompleteEdgeSec: drainCompleteEdgeSec,
         )?.wire;
       }
       final flags = decoded['flags'];
@@ -14853,6 +14860,7 @@ class LocalDb {
             sleepOffsetSec: wakeSec,
             dataEdgeSec: edgeSec,
             nowSec: nowSec,
+            drainCompleteEdgeSec: drainCompleteEdgeSec,
           )) {
         // When the give-up lands; getToday re-checks then, since a quiet
         // strap triggers no derive to do it.

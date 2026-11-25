@@ -2642,6 +2642,17 @@ class BleEngine {
     _armDeriveTimer();
   }
 
+  /// Deliver any pending [onDataStored] immediately instead of waiting out
+  /// [deriveDebouncer] (used at `HISTORY_COMPLETE` and disconnect teardown).
+  void _flushPendingDerive({bool force = false}) {
+    _deriveTimer?.cancel();
+    _deriveTimer = null;
+    if (_firstPending != null || force) {
+      _firstPending = null;
+      onDataStored?.call();
+    }
+  }
+
   /// One-shot timer armed at the debouncer's computed next boundary — replaces
   /// the old 2 s Timer.periodic poll, which during continuous background
   /// listening ran for the whole pending window (a permanent 0.5 Hz CPU wake,
@@ -8029,19 +8040,27 @@ class BleEngine {
       _historyCompletions++;
       _session?.idleWatchdog?.cancel();
       _session?.cancelFirstStartWatchdog();
-      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
-        status: 'complete',
-        metaPatch: {
-          'history_complete_at': DateTime.now().millisecondsSinceEpoch,
-          'records_seen': d.records,
-          'batches_acked': d.batches,
-          'history_requests': _historyRequests,
-          'history_completions': _historyCompletions,
-          'strap_history_oldest_ts': _strapHistoryOldestTs,
-          'strap_history_newest_ts': _strapHistoryNewestTs,
-          'band_generation': state.generation,
-        },
-      ));
+      await _bestEffortLedgerWrite(() async {
+        if (tailDurable && _recordGate.frontierTs > 0) {
+          await LocalDb.setCursor(
+            LocalDb.kHistoryCompleteEdgeCursor,
+            '${_recordGate.frontierTs}',
+          );
+        }
+        await LocalDb.upsertSyncLedgerEntry(
+          status: 'complete',
+          metaPatch: {
+            'history_complete_at': DateTime.now().millisecondsSinceEpoch,
+            'records_seen': d.records,
+            'batches_acked': d.batches,
+            'history_requests': _historyRequests,
+            'history_completions': _historyCompletions,
+            'strap_history_oldest_ts': _strapHistoryOldestTs,
+            'strap_history_newest_ts': _strapHistoryNewestTs,
+            'band_generation': state.generation,
+          },
+        );
+      });
       _log(
         '[SYNC] HistoryComplete — backlog drained (${d.records} records, '
         '${_recordGate.dropped} dropped). Still listening for live records.',
@@ -8049,8 +8068,8 @@ class BleEngine {
       _setHpsTerminal(_HpsTerminalKind.success, drain: d);
       _syncProgress.onSyncFinished(now: clock.now());
       syncProgress.value = _syncProgress.snapshot;
-      _noteStored();
       await _onOffloadFinished();
+      _flushPendingDerive(force: d.records > 0);
     }
   }
 
@@ -9560,12 +9579,7 @@ class BleEngine {
     _drainBatch = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
     // debounce timer so it doesn't fire into a dead connection.
-    _deriveTimer?.cancel();
-    _deriveTimer = null;
-    if (_firstPending != null) {
-      _firstPending = null;
-      onDataStored?.call();
-    }
+    _flushPendingDerive();
     final device = session.device;
     // Every piece of ENGINE state this link owned is released here, before
     // the first await: a replacement session can be connected while the

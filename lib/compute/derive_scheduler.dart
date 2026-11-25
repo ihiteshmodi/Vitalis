@@ -15,7 +15,7 @@ class DeriveScheduler {
     required this.run,
     required this.log,
     required this.onChanged,
-    this.lightSettle = const Duration(seconds: 8),
+    this.lightSettle = const Duration(seconds: 2),
     this.heavySettle = const Duration(seconds: 2),
     this.workoutHoldCap = const Duration(hours: 6),
   });
