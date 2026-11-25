@@ -16493,6 +16493,21 @@ class LocalDb {
     );
   }
 
+  /// Most recent steady-state GPS workout submax VO2max (`sessions.vo2max_estimate`),
+  /// or null when none has been recorded yet (Tier 1 of the standing VO2max ladder).
+  static Future<double?> latestSessionVo2max() async {
+    final db = await instance;
+    final rows = await db.query(
+      'sessions',
+      columns: const ['vo2max_estimate'],
+      where: 'vo2max_estimate IS NOT NULL',
+      orderBy: 'start_ts DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return (rows.first['vo2max_estimate'] as num?)?.toDouble();
+  }
+
   static Future<void> setSessionType(String id, String type) async {
     final db = await instance;
     await db.update(

@@ -48,6 +48,9 @@ import '../../models/metric.dart';
 import '../../models/activity_suggestion.dart';
 import '../../notify/battery_forecast.dart'
     show BatteryForecast, BatterySample;
+import 'package:openstrap_analytics/onehz.dart' show StandingVo2max;
+import '../screens/biological_age_card.dart'
+    show BiologicalAgeCard, BiologicalAgeSummaryRow, LongevitySnapshot;
 import '../screens/detected_activities.dart';
 import '../screens/overnight_hrv_card.dart'
     show OvernightHrvCard, OvernightHrvData;
@@ -1340,6 +1343,39 @@ Map<String, Widget> extraCases() => {
         data: OvernightHrvData(),
       ),
       'step_divisor_card': const StepDivisorCard(),
+      'biological_age_populated': const BiologicalAgeCard(
+        snapshot: LongevitySnapshot(
+          chronoAge: 34.0,
+          bodyAge: 31.2,
+          paceOfAging: 0.80,
+          vitality: 57.0,
+          fitnessAge: 30.8,
+          vo2max: StandingVo2max(
+            value: 48.2,
+            tier: 1,
+            source: 'submax_gps',
+          ),
+          helpingMost: 'Heart-rate variability',
+          holdingBack: 'Sleep duration',
+          rhrNights: 6,
+        ),
+      ),
+      'biological_age_calibrating': const BiologicalAgeCard(
+        snapshot: LongevitySnapshot(chronoAge: 34.0, rhrNights: 2),
+      ),
+      'biological_age_summary_row': BiologicalAgeSummaryRow(
+        snapshot: const LongevitySnapshot(
+          chronoAge: 34.0,
+          bodyAge: 31.2,
+          paceOfAging: 0.80,
+          vo2max: StandingVo2max(
+            value: 48.2,
+            tier: 1,
+            source: 'submax_gps',
+          ),
+        ),
+        onTap: () {},
+      ),
     };
 
 /// The longest realistic night: every sign fired and every knowable known.

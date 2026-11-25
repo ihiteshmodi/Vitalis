@@ -21,7 +21,11 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../compute/profile.dart'
-    show plausibleAgeYears, plausibleHeightCm, plausibleWeightKg;
+    show
+        plausibleAgeYears,
+        plausibleHeightCm,
+        plausibleWaistCm,
+        plausibleWeightKg;
 import '../../data/off_lookup.dart';
 import '../../health/health_export.dart' show HealthLinkState;
 import '../../health/health_import_state.dart';
@@ -1620,6 +1624,14 @@ class _EditProfileViewState extends State<EditProfileView> {
       TextEditingController(text: _u.heightField(widget.initial['height_cm'] as num?));
   late final _weight =
       TextEditingController(text: _u.weightField(widget.initial['weight_kg'] as num?));
+  late final _waist = TextEditingController(
+    text: (widget.initial['waist_cm'] as num?) == null
+        ? ''
+        : (_u.isImperial
+                ? (widget.initial['waist_cm'] as num).toDouble() / 2.54
+                : (widget.initial['waist_cm'] as num).toDouble())
+            .toStringAsFixed(1),
+  );
   late String? _sex = (widget.initial['sex'] as String?)?.toLowerCase();
 
   /// The metric values the height/weight fields were last filled from, so an
@@ -1701,6 +1713,7 @@ class _EditProfileViewState extends State<EditProfileView> {
     _age.dispose();
     _height.dispose();
     _weight.dispose();
+    _waist.dispose();
     super.dispose();
   }
 
@@ -1718,10 +1731,12 @@ class _EditProfileViewState extends State<EditProfileView> {
     final age = Typed.of(_age.text);
     final height = Typed.of(_height.text);
     final weight = Typed.of(_weight.text);
+    final waist = Typed.of(_waist.text);
     final bad = [
       if (age.bad) (l?.settingsAgeFieldLabel ?? 'Age'),
       if (height.bad) uiText(context, _u.heightLabel),
       if (weight.bad) uiText(context, _u.weightLabel),
+      if (waist.bad) 'Waist',
     ];
     if (bad.isNotEmpty) {
       sayUnreadable(context, bad);
@@ -1739,6 +1754,11 @@ class _EditProfileViewState extends State<EditProfileView> {
         weight.value == null
             ? null
             : _u.weightToKgKeeping(_weight.text, _shownWeightKg);
+    final waistCm = waist.value == null
+        ? null
+        : (_u.isImperial
+            ? waist.value!.toDouble() * 2.54
+            : waist.value!.toDouble());
     final off = [
       if (age.value case final a? when !plausibleAgeYears(a))
         (l?.settingsAgeFieldLabel ?? 'Age'),
@@ -1746,6 +1766,7 @@ class _EditProfileViewState extends State<EditProfileView> {
         uiText(context, _u.heightLabel),
       if (weightKg != null && !plausibleWeightKg(weightKg))
         uiText(context, _u.weightLabel),
+      if (waistCm != null && !plausibleWaistCm(waistCm)) 'Waist',
     ];
     if (off.isNotEmpty) {
       sayImplausible(context, off);
@@ -1762,6 +1783,7 @@ class _EditProfileViewState extends State<EditProfileView> {
         // Typed in the units on the label, stored in metric.
         'height_cm': heightCm,
         'weight_kg': weightKg,
+        'waist_cm': waistCm,
       });
     } catch (e) {
       if (mounted) {
@@ -1849,6 +1871,17 @@ class _EditProfileViewState extends State<EditProfileView> {
                     l?.localeName.startsWith('ru') == true
                         ? uiText(c, _u.weightLabel)
                         : uiText(c, _u.weightLabel).toUpperCase(),
+                    const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: S.x4),
+                  _text(
+                    c,
+                    _waist,
+                    _u.isImperial
+                        ? (l?.settingsWaistInFieldLabel ??
+                            'WAIST (IN, OPTIONAL)')
+                        : (l?.settingsWaistCmFieldLabel ??
+                            'WAIST (CM, OPTIONAL)'),
                     const TextInputType.numberWithOptions(decimal: true),
                   ),
                   ..._importBlock(p, c),

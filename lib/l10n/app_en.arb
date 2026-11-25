@@ -18504,5 +18504,62 @@
   "stepDivisorApply": "Apply",
   "@stepDivisorApply": {"description": "Apply button saving a new band step divisor."},
   "stepDivisorInvalid": "Enter a number between 0.5 and 30.0",
-  "@stepDivisorInvalid": {"description": "Validation message for an invalid step divisor."}
+  "@stepDivisorInvalid": {"description": "Validation message for an invalid step divisor."},
+  "bioAgeTitle": "Body Age & Fitness",
+  "@bioAgeTitle": {"description": "Title of the Biological Age & VO2max card."},
+  "bioAgeBodyAgeLabel": "BODY AGE",
+  "@bioAgeBodyAgeLabel": {"description": "Overline label for Body Age."},
+  "bioAgeBodyAgeShort": "Body Age",
+  "@bioAgeBodyAgeShort": {"description": "Short inline label for Body Age."},
+  "bioAgePaceLabel": "PACE OF AGING",
+  "@bioAgePaceLabel": {"description": "Overline label for Pace of Aging."},
+  "bioAgePaceShort": "Pace",
+  "@bioAgePaceShort": {"description": "Short inline label for Pace of Aging."},
+  "bioAgeVitalityLabel": "VITALITY",
+  "@bioAgeVitalityLabel": {"description": "Overline label for Vitality score."},
+  "bioAgeFitnessAgeLabel": "FITNESS AGE",
+  "@bioAgeFitnessAgeLabel": {"description": "Overline label for Fitness Age."},
+  "bioAgeYearsUnit": "yrs",
+  "@bioAgeYearsUnit": {"description": "Years unit abbreviation."},
+  "bioAgeAboutYourAge": "About your age",
+  "@bioAgeAboutYourAge": {"description": "Body Age delta when difference rounds to 0."},
+  "bioAgeYearsYounger": "{count, plural, =1{1 yr younger} other{{count} yrs younger}}",
+  "@bioAgeYearsYounger": {
+    "description": "Body Age delta when younger than chronological age.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "bioAgeYearsOlder": "{count, plural, =1{1 yr older} other{{count} yrs older}}",
+  "@bioAgeYearsOlder": {
+    "description": "Body Age delta when older than chronological age.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "bioAgeVo2Tier1": "GPS workout submax",
+  "@bioAgeVo2Tier1": {"description": "Tier 1 VO2max source label."},
+  "bioAgeVo2Tier2": "Non-exercise (waist)",
+  "@bioAgeVo2Tier2": {"description": "Tier 2 VO2max source label."},
+  "bioAgeVo2Tier3": "Heart-rate ratio estimate",
+  "@bioAgeVo2Tier3": {"description": "Tier 3 VO2max source label."},
+  "bioAgeHelpingMost": "Helping most: {factor}",
+  "@bioAgeHelpingMost": {
+    "description": "Line naming the factor lowering Body Age hazard most.",
+    "placeholders": {"factor": {"type": "String"}}
+  },
+  "bioAgeHoldingBack": "Holding you back: {factor}",
+  "@bioAgeHoldingBack": {
+    "description": "Line naming the factor raising Body Age hazard most.",
+    "placeholders": {"factor": {"type": "String"}}
+  },
+  "bioAgeDisclaimer": "Wellness comparison from your habits, not a clinical biological age.",
+  "@bioAgeDisclaimer": {"description": "Wellness disclaimer on the Body Age card."},
+  "bioAgeNeedProfileBody": "Add your age and sex in Profile to unlock Body Age, Pace of Aging, Fitness Age, and standing VO2max.",
+  "@bioAgeNeedProfileBody": {"description": "Honest calibration card when age or sex is missing."},
+  "bioAgeNeedNightsBody": "{count, plural, =1{Needs 1 more sleeping heart-rate night to unlock Fitness Age and standing VO2max.} other{Needs {count} more sleeping heart-rate nights to unlock Fitness Age and standing VO2max.}}",
+  "@bioAgeNeedNightsBody": {
+    "description": "Honest calibration countdown when fewer than 4 resting-HR nights exist.",
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "settingsWaistCmFieldLabel": "WAIST (CM, OPTIONAL)",
+  "@settingsWaistCmFieldLabel": {"description": "Optional waist circumference field in cm on Edit Profile."},
+  "settingsWaistInFieldLabel": "WAIST (IN, OPTIONAL)",
+  "@settingsWaistInFieldLabel": {"description": "Optional waist circumference field in inches on Edit Profile."}
 }

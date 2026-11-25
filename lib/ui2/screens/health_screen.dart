@@ -28,6 +28,7 @@ import '../profile/wearable_numbers.dart'
 import '../ui2.dart';
 import '../guides/help_entry.dart';
 import 'advanced.dart';
+import 'biological_age_card.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
 import 'findings_log.dart';
 import 'slot_scrub.dart';
@@ -95,6 +96,9 @@ class HealthData {
   /// trend cards draw for resting HR and HRV. Null when it could not be read.
   final Map<String, dynamic>? baselines;
 
+  /// Body Age, Pace of Aging, Vitality, Fitness Age, and 3-tier standing VO2max.
+  final LongevitySnapshot? longevity;
+
   const HealthData({
     this.today = const {},
     this.insights = const {},
@@ -109,6 +113,7 @@ class HealthData {
     this.napDay = '',
     this.findings = const [],
     this.baselines,
+    this.longevity,
   });
 
   /// The stored points for [key].
@@ -223,6 +228,7 @@ class HealthData {
     final napDay = days.isEmpty ? todayLabel() : days.first;
     final naps = await _soft(() => repo.getDayNaps(napDay));
     final heart = await _soft(() => repo.getDayHeart(todayLabel()));
+    final longevity = await loadLongevitySnapshotFromDb(profile);
 
     return HealthData(
       today: today,
@@ -242,6 +248,7 @@ class HealthData {
       baselines: heart['baselines'] is Map
           ? (heart['baselines'] as Map).cast<String, dynamic>()
           : null,
+      longevity: longevity,
     );
   }
 }
@@ -907,6 +914,10 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       if (pairedIsMaverickOf(c)) ...[
         const EcgEntryCard(),
         const SizedBox(height: S.x3),
+      ],
+      if (d.longevity != null) ...[
+        BiologicalAgeCard(snapshot: d.longevity!),
+        const SizedBox(height: S.x4),
       ],
       // Where today's recovery stands, in Home's words: the overnight rows
       // below can be a held-over night while Home greys today's own number.

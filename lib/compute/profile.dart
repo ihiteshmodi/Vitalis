@@ -14,6 +14,7 @@ class Profile {
   final int? ageYears;
   final double? weightKg;
   final double? heightCm;
+  final double? waistCm;
   final String? sex; // 'm' | 'f' (lowercase; matches the AppState profile map)
   final int? restingHrManual; // optional user-supplied RHR
   // The zones screen's manual edges. Carried so the day derive (which only
@@ -24,6 +25,7 @@ class Profile {
     this.ageYears,
     this.weightKg,
     this.heightCm,
+    this.waistCm,
     this.sex,
     this.restingHrManual,
     this.hrZoneBounds,
@@ -35,6 +37,7 @@ class Profile {
       ageYears: (m['age'] as num?)?.round(),
       weightKg: (m['weight_kg'] as num?)?.toDouble(),
       heightCm: (m['height_cm'] as num?)?.toDouble(),
+      waistCm: (m['waist_cm'] as num?)?.toDouble(),
       sex: (m['sex'] as String?)?.toLowerCase(),
       restingHrManual: (m['resting_hr'] as num?)?.round(),
       hrZoneBounds: manualZoneBoundsFromProfile(m),
@@ -45,6 +48,7 @@ class Profile {
         if (ageYears != null) 'age': ageYears,
         if (weightKg != null) 'weight_kg': weightKg,
         if (heightCm != null) 'height_cm': heightCm,
+        if (waistCm != null) 'waist_cm': waistCm,
         if (sex != null) 'sex': sex,
         if (restingHrManual != null) 'resting_hr': restingHrManual,
         if (hrZoneBounds != null) 'hr_zone_bounds': hrZoneBounds,
@@ -89,6 +93,7 @@ class Profile {
 const kPlausibleAgeYears = (min: 1, max: 120);
 const kPlausibleHeightCm = (min: 50.0, max: 272.0);
 const kPlausibleWeightKg = (min: 20.0, max: 400.0);
+const kPlausibleWaistCm = (min: 35.0, max: 250.0);
 
 bool plausibleAgeYears(num v) =>
     v.round() >= kPlausibleAgeYears.min && v.round() <= kPlausibleAgeYears.max;
@@ -96,6 +101,8 @@ bool plausibleHeightCm(num v) =>
     v >= kPlausibleHeightCm.min && v <= kPlausibleHeightCm.max;
 bool plausibleWeightKg(num v) =>
     v >= kPlausibleWeightKg.min && v <= kPlausibleWeightKg.max;
+bool plausibleWaistCm(num v) =>
+    v >= kPlausibleWaistCm.min && v <= kPlausibleWaistCm.max;
 
 /// Body mass index (kg/m²) off a weight and a height, or null without both.
 double? bmiOf(num? weightKg, num? heightCm) =>

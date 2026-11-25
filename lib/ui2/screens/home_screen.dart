@@ -66,6 +66,8 @@ import '../../models/payloads.dart' show todayHeadlineOf;
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClockOf;
+import 'biological_age_card.dart';
+import 'health_screen.dart' show HealthScreen;
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
@@ -1853,6 +1855,7 @@ class HomeData {
   /// figure can still move (#638). The number is drawn greyed and the card says
   /// so; recovery is still withheld entirely until the night settles.
   final bool sleepProvisional;
+  final LongevitySnapshot? longevity;
 
   const HomeData({
     this.name,
@@ -1878,6 +1881,7 @@ class HomeData {
     this.readinessUpdate,
     this.sleepStages,
     this.sleepProvisional = false,
+    this.longevity,
   });
 
   /// The three illness fields, replaced together. Test-facing sugar, and they
@@ -2060,6 +2064,7 @@ class HomeData {
           ? (strain['strain_target'] as Map).cast<String, dynamic>()
           : null,
       insightsStale: staleReasonOf(cd),
+      longevity: await loadLongevitySnapshotFromDb(profile),
     );
   }
 }
@@ -2745,6 +2750,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           alarmDoor(c, a.$1, a.$2),
         ],
       // The coach, set up or not, on every ordinary or bare today.
+      if (isToday && d.longevity != null && d.longevity!.hasAnyMetric) ...[
+        const SizedBox(height: S.x4),
+        BiologicalAgeSummaryRow(
+          snapshot: d.longevity!,
+          onTap: () => go(c, const HealthScreen()),
+        ),
+      ],
       if (isToday) ...[
         const SizedBox(height: S.x4),
         coachChip(c),
