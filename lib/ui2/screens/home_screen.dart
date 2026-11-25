@@ -60,7 +60,7 @@ import '../../l10n/decimal_text.dart';
 import '../../state/locale_controller.dart';
 import 'package:intl/intl.dart';
 import 'package:openstrap_analytics/onehz.dart'
-    show quietHrrMinDays, readinessCompositeMinBaseline;
+    show kRecoveryMinBaselineNights, quietHrrMinDays;
 import '../../models/metric.dart';
 import '../../models/payloads.dart' show todayHeadlineOf;
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
@@ -895,6 +895,7 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
 const driverLabels = {
   'hrv': 'HRV',
   'rhr': 'Resting heart rate',
+  'sleep': 'Sleep performance',
   'resp': 'Breathing rate',
   'temp': 'Skin temperature',
 };
@@ -907,6 +908,7 @@ String driverLabel(Object? key, [AppLocalizations? l]) {
   final known = switch (k) {
     'hrv' => l?.homeDriverHrv ?? driverLabels['hrv'],
     'rhr' => l?.homeDriverRhr ?? driverLabels['rhr'],
+    'sleep' => driverLabels['sleep'],
     'resp' => l?.homeDriverResp ?? driverLabels['resp'],
     'temp' => l?.homeDriverTemp ?? driverLabels['temp'],
     _ => null,
@@ -2523,7 +2525,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     final firstWeeks = isToday &&
         widget.data == null &&
         d.readiness.isEmpty &&
-        (_days.length <= readinessCompositeMinBaseline ||
+        (_days.length <= kRecoveryMinBaselineNights ||
             recoveryNightsLeft != null);
 
     final stale = staleInsightsCard(d.insightsStale, syncOf(c), l);
@@ -3172,7 +3174,7 @@ Widget firstWeekCard(BuildContext c,
   final p = P.of(c);
   final l = AppLocalizations.of(c);
   final strainDay = quietHrrMinDays + 1;
-  final recoveryNight = readinessCompositeMinBaseline + 1;
+  final recoveryNight = kRecoveryMinBaselineNights + 1;
   Widget step(bool done, String text) => Semantics(
         // The tick is drawn, so it is also said.
         label: done ? (l?.homeFirstWeekDone(text) ?? 'Done: $text') : text,

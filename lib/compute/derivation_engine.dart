@@ -34,7 +34,10 @@ import 'quiet_level_seed.dart' show seedQuietHrrHistoryOnce;
 import 'strain_backfill.dart' show backfillStrainScale;
 import 'stress_backfill.dart' show backfillStressScale;
 import 'readiness_calibration_backfill.dart'
-    show backfillReadinessCalibration, seedRecentReadinessZ;
+    show
+        backfillNoopRecovery,
+        backfillReadinessCalibration,
+        seedRecentReadinessZ;
 
 import 'package:crypto/crypto.dart' show sha1;
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
@@ -1918,7 +1921,11 @@ import 'vendor_sleep.dart';
 // (150 centi-°C) below the night median, emits exact `skin_temp_c` from Night 1
 // and `skin_temp_dev_c` from Night 4 (3 prior nights), and scopes `skin_temp_adc`
 // baselines by wear site (Wrist vs Bicep).
-const int kAlgoVersion = 128;
+// 128 → 129 (NOOP Recovery composite): band days score Recovery via
+// `RecoveryScorer.scoreMetric` (55% HRV, 20% RHR, 15% Sleep performance,
+// 5% Resp, 5% Skin Temp; Winsorized-EWMA personal baselines with 4-night seed
+// -> scores from Night 5; logistic k=1.6, z0=-0.20 anchored at ~58%).
+const int kAlgoVersion = 129;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4337,7 +4344,16 @@ class DerivationEngine {
                     'never landed, from stored inputs)' : ''}');
             await _refreshBaselines();
           }
-          if (r.rescored > 0) crossDayRebuilt = await _runCrossDay(profile);
+          final noopRescored = await backfillNoopRecovery(
+            rawDays: await substrateDays(),
+          );
+          if (noopRescored > 0) {
+            _log('[derive] NOOP recovery backfill: $noopRescored day(s) re-scored');
+            await _refreshBaselines();
+          }
+          if (r.rescored > 0 || noopRescored > 0) {
+            crossDayRebuilt = await _runCrossDay(profile);
+          }
         } catch (e) {
           _log('[derive] readiness calibration failed (will retry): $e');
         }

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart'
-    show quietHrrMinDays, readinessCompositeMinBaseline;
+    show kRecoveryMinBaselineNights, quietHrrMinDays;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,7 +53,7 @@ void main() {
     expect(find.text('Strain: from day ${quietHrrMinDays + 1}'),
         findsOneWidget);
     expect(
-        find.text('Recovery: from night ${readinessCompositeMinBaseline + 1}, '
+        find.text('Recovery: from night ${kRecoveryMinBaselineNights + 1}, '
             'once it knows your normal'),
         findsOneWidget);
     expect(find.text('2 days recorded so far'), findsOneWidget);

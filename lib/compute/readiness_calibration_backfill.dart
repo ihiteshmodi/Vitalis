@@ -264,6 +264,139 @@ Future<({int seeded, int rescored, int forced})> backfillReadinessCalibration({
 Future<void> _markDone() => LocalDb.putComputeFreshness(
     kReadinessCalibrationKey, jsonEncode({'done': true}));
 
+/// `compute_freshness` key for the one-shot NOOP Recovery historical backfill.
+const String kNoopRecoveryBackfillKey = 'noop_recovery_backfill_v129';
+
+/// Re-scores stored non-imported band days below [kAlgoVersion] that have no
+/// 1 Hz substrate left using NOOP's [ana.RecoveryScorer.scoreMetric] over the
+/// stored `metric_series` history (`rmssd`, `rhr`, `resp_rate`, `efficiency`,
+/// `skin_temp_adc`). This unlocks Night 5+ Recovery scores on historical days
+/// that were previously locked with `readiness = null` under the old 14-night
+/// gate.
+Future<int> backfillNoopRecovery({
+  required Set<String> rawDays,
+  bool force = false,
+}) async {
+  final state = force
+      ? null
+      : _decode(
+          (await LocalDb.computeFreshness(kNoopRecoveryBackfillKey))?[
+              'payload_json'],
+        );
+  if (state?['done'] == true) return 0;
+
+  final days = await _storedDays();
+  if (days.isEmpty) {
+    await LocalDb.putComputeFreshness(
+      kNoopRecoveryBackfillKey,
+      jsonEncode({'done': true}),
+    );
+    return 0;
+  }
+
+  Future<Map<String, double>> loadSeries(String key) async => {
+        for (final r in await LocalDb.metricSeries(key))
+          if (r['date'] is String && r['value'] is num)
+            r['date'] as String: (r['value'] as num).toDouble(),
+      };
+
+  final rmssdMap = await loadSeries('rmssd');
+  final rhrMap = await loadSeries('rhr');
+  final respMap = await loadSeries('resp_rate');
+  final effMap = await loadSeries('efficiency');
+  final tempAdcMap = await loadSeries('skin_temp_adc');
+  final versions = await LocalDb.dayResultVersions();
+
+  var rescored = 0;
+  var hasPendingRaw = false;
+
+  List<double> priorOf(Map<String, double> m, String beforeDay) {
+    final keys = [
+      for (final k in m.keys)
+        if (k.compareTo(beforeDay) < 0) k,
+    ]..sort();
+    final start = keys.length > 28 ? keys.length - 28 : 0;
+    return [for (var i = start; i < keys.length; i++) m[keys[i]]!];
+  }
+
+  for (final day in days) {
+    if ((versions[day] ?? 0) >= kAlgoVersion) continue;
+    if (rawDays.contains(day)) {
+      hasPendingRaw = true;
+      continue;
+    }
+    final row = await LocalDb.dayResult(day);
+    if (row == null ||
+        ((row['algo_version'] as num?)?.toInt() ?? 0) >= kAlgoVersion) {
+      continue;
+    }
+    final payload = _decode(row['payload_json']);
+    if (payload == null) continue;
+    final fam = (payload['device_family'] as String?) ??
+        (row['device_family'] as String?);
+    if (fam != null && fam != 'gen4' && fam != 'gen5') continue;
+
+    final hrv = rmssdMap[day];
+    final rhr = rhrMap[day];
+    final resp = respMap[day];
+    final effPct = effMap[day];
+    final tempAdc = tempAdcMap[day];
+    final priorTemp = priorOf(tempAdcMap, day);
+    double? devC;
+    if (fam == 'gen5' && tempAdc != null && priorTemp.length >= 3) {
+      final usual = ana.median(priorTemp);
+      if (usual != null) devC = (tempAdc - usual) / 100.0;
+    }
+
+    final m = ana.RecoveryScorer.scoreMetric(
+      hrv: hrv,
+      rhr: rhr,
+      resp: resp,
+      hrvHistory: priorOf(rmssdMap, day),
+      rhrHistory: priorOf(rhrMap, day),
+      respHistory: priorOf(respMap, day),
+      sleepPerf: effPct == null ? null : (effPct / 100.0).clamp(0.0, 1.0),
+      skinTempDevC: devC,
+    );
+    if (!m.present) continue;
+
+    final score = double.parse(m.value!.score.toStringAsFixed(1));
+    final z = m.value!.compositeZ;
+    final clinical = (payload['clinical'] as Map?)?.cast<String, dynamic>() ??
+        <String, dynamic>{};
+    clinical['readiness_composite'] = m.toJson((v) => v.toJson());
+    payload['clinical'] = clinical;
+    final scalars = (payload['scalars'] as Map?)?.cast<String, dynamic>() ??
+        <String, dynamic>{};
+    scalars['readiness'] = score;
+    scalars['readiness_z'] = z;
+    payload['scalars'] = scalars;
+    payload.remove('readiness_absent_diag');
+
+    await LocalDb.putMetricSeriesValue(day, 'readiness', score);
+    await LocalDb.putMetricSeriesValue(day, 'readiness_z', z);
+    await LocalDb.putDayResult(
+      dayId: day,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode(payload),
+      windowJson: (row['window_json'] as String?) ?? '{}',
+      finalized: (row['finalized'] as num?)?.toInt() == 1,
+      rhr: (row['rhr'] as num?)?.toDouble(),
+      rmssd: (row['rmssd'] as num?)?.toDouble(),
+      readiness: score,
+    );
+    rescored++;
+  }
+
+  if (!hasPendingRaw) {
+    await LocalDb.putComputeFreshness(
+      kNoopRecoveryBackfillKey,
+      jsonEncode({'done': true}),
+    );
+  }
+  return rescored;
+}
+
 Map<String, dynamic>? _decode(Object? json) {
   if (json is! String) return null;
   try {

@@ -1148,57 +1148,44 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // lives in `rhr` itself, so this is the same number the card shows.
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
-  final composite = readinessComposite([
-    hrvInput(lnToday, d.lnRmssdHistory),
-    rhrInput(rhrToday, d.rhrHistory),
-    respInput(respToday, d.respHistory),
-    // Feed the RAW ADC mean + the RAW-ADC baseline so the composite computes its
-    // own oriented robust-z internally (consistent with the other inputs, which
-    // pass raw values + their raw baselines).
-    //
-    // Value and baseline have to be the same quantity: this is the same
-    // settled nightly mean that is banked as `skin_temp_adc`. The settled
-    // fraction is the GATE on using it at all: below 0.80 the driver is refused
-    // for this night, by name, and readiness renormalises over the three that
-    // are left.
-    tempInput(
-      skinTempNightly,
-      d.skinTempAdcHistory,
-      settledFraction: skinTempSettledFrac,
-    ),
-  ],
-      // A wearable gives no beats, so HRV (and resp) never enter: the
-      // composite is PARTIAL, resting HR and skin temperature, which weigh
-      // 0.30 + 0.10. Still two measured inputs, never one; the band's own
-      // floor is untouched.
-      minWeightSum: hrCadence == null
-          ? readinessCompositeMinWeight
-          : kPartialReadinessMinWeight,
-      compositeZHistory: d.readinessZHistory);
-  // Populated when readiness comes back absent, so the main isolate can log WHY
-  // instead of a bare null (this runs inside Isolate.run, so it can't call
-  // Firebase directly; it just returns data). TWO consumers now, and the second
-  // is why the shape below is what it is: `readiness_detail.dart` renders these
-  // rows TO THE USER — "Measured · 6 nights of your own history" — so every key
-  // here is either something a person is owed or something a crash report needs.
-  //
-  // `baseline_sd` USED TO BE HERE and is gone. It existed to identify a
-  // degenerate-dispersion baseline BY ELIMINATION, back when readinessComposite
-  // abstained on that silently. It no longer does: the quantized inputs (RHR,
-  // temp) refuse by name with the number in the note —
-  // `baseline_dispersion_below_quantum:sd=…,quantum=…,n=…`. The two continuous
-  // inputs (lnRMSSD, resp) have no quantum and so still fall through to the
-  // mean/SD z, which only returns null on an EXACTLY constant baseline of
-  // doubles — a case that cannot be reached by real nightly values. So the
-  // field diagnosed nothing the note does not say, and shipped an unexplained
-  // number to a Crashlytics field that had to be read by someone who knew all
-  // of the above.
+  final hrvHistMs = d.rmssdHistory.isNotEmpty
+      ? d.rmssdHistory
+      : [for (final x in d.lnRmssdHistory) math.exp(x)];
+  final sleepPerfToday =
+      effPct == null ? null : (effPct / 100.0).clamp(0.0, 1.0);
+  final Metric<Readiness> composite = hrCadence == null
+      ? RecoveryScorer.scoreMetric(
+          hrv: sleepSessionRmssd,
+          rhr: rhrToday,
+          resp: respToday,
+          hrvHistory: hrvHistMs,
+          rhrHistory: d.rhrHistory,
+          respHistory: d.respHistory,
+          sleepPerf: sleepPerfToday,
+          skinTempDevC: skinTempDevC,
+        )
+      : readinessComposite([
+          hrvInput(lnToday, d.lnRmssdHistory),
+          rhrInput(rhrToday, d.rhrHistory),
+          respInput(respToday, d.respHistory),
+          tempInput(
+            skinTempNightly,
+            d.skinTempAdcHistory,
+            settledFraction: skinTempSettledFrac,
+          ),
+        ],
+          minWeightSum: kPartialReadinessMinWeight,
+          compositeZHistory: d.readinessZHistory);
   Map<String, dynamic>? readinessAbsentDiag;
   if (!composite.present) {
+    final hrvValidN =
+        Baselines.foldHistory(hrvHistMs, Baselines.hrvCfg)?.nValid ?? 0;
     readinessAbsentDiag = {
+      'min_baseline':
+          hrCadence == null ? kRecoveryMinBaselineNights : readinessCompositeMinBaseline,
       'hrv': {
-        'value': lnToday != null,
-        'baseline_n': d.lnRmssdHistory.length,
+        'value': sleepSessionRmssd != null,
+        'baseline_n': hrCadence == null ? hrvValidN : d.lnRmssdHistory.length,
       },
       'rhr': {
         'value': rhrToday != null,
@@ -1211,8 +1198,6 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       'temp': {
         'value': skinTempAdc != null,
         'baseline_n': d.skinTempAdcHistory.length,
-        // The gate, not the value: a temp driver can be refused with a perfectly
-        // good mean and a full baseline. Null = the fraction was unmeasurable.
         'settled_frac': skinTempSettledFrac,
       },
       'note': composite.note,

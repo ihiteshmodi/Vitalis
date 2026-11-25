@@ -8,7 +8,8 @@ import '../../l10n/presentation_text.dart';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:openstrap_analytics/onehz.dart' show readinessCompositeMinBaseline;
+import 'package:openstrap_analytics/onehz.dart'
+    show kRecoveryMinBaselineNights, readinessCompositeMinBaseline;
 
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
@@ -554,6 +555,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     String? fallbackReason,
   }) {
     final l = AppLocalizations.of(c);
+    final minBase =
+        (diag['min_baseline'] as num?)?.toInt() ?? kRecoveryMinBaselineNights;
     final rows = <(String, String)>[];
     for (final k in const ['hrv', 'rhr', 'resp', 'temp']) {
       final e = diag[k];
@@ -562,7 +565,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       rows.add((
         driverLabel(k, l),
         '${e['value'] == true ? (l?.readinessDetailMeasured ?? 'Measured') : (l?.readinessDetailNotMeasured ?? 'Not measured')} · '
-            '${l?.readinessDetailNightsOfTarget(n, readinessCompositeMinBaseline) ?? '$n of $readinessCompositeMinBaseline nights'}',
+            '${l?.readinessDetailNightsOfTarget(n, minBase) ?? '$n of $minBase nights'}',
       ));
     }
 
