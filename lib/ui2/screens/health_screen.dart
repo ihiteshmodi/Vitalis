@@ -1186,13 +1186,16 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final wearAsOfText =
         wearAsOf == null ? '' : asOfText(wearAsOf, v.day ?? todayLabel(), l);
     final skinTemp = metricOf(d.today['skin_temp']);
-    // WHOOP 5 reads in real °C, so its row says degrees, not SDs.
-    final tempDevC = ((d.today['skin_temp'] as Map?)?['dev_c'] as num?)
-        ?.toDouble();
+    final skinTempMap = d.today['skin_temp'] as Map?;
+    final tempAbsC = (skinTempMap?['abs_c'] as num?)?.toDouble();
+    final tempDevC = (skinTempMap?['dev_c'] as num?)?.toDouble();
+    final units = unitsOf(c);
+    final tempUnitLabel = units?.tempUnit ?? '°C';
+    final tempAbsShown =
+        tempAbsC == null ? null : (units?.tempValue(tempAbsC) ?? tempAbsC);
     // °C → the user's unit (°F for imperial). A DEVIATION, so this scales by
     // 9/5 with NO +32 offset; null in a golden falls back to °C. The SD
     // fallback below is a z-score, not a temperature — it is never converted.
-    final units = unitsOf(c);
     final tempDevShown =
         tempDevC == null ? null : (units?.tempDeltaValue(tempDevC) ?? tempDevC);
     final rmssd = v.hrv['rmssd'] as num?;
@@ -1211,32 +1214,37 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         MetricRow(LucideIcons.wind, C.teal, l?.healthRowRespRate ?? 'Respiratory rate',
             resp.toStringAsFixed(1),
             sub: l?.healthSubAsleep ?? 'Asleep', unit: 'br/min'),
-      if (skinTemp.value != null || tempDevC != null)
-        // NAME THE QUANTITY. This is `skin_temp_z` — standard deviations from
-        // the user's own baseline. It printed signed and unitless beside a
-        // heart rate in bpm, so it read as °C; and the sleep scrub's
-        // "temperature" is a THIRD quantity again (raw ADC minus that day's
-        // median), which is why neither may go unlabelled.
+      if (tempAbsShown != null || skinTemp.value != null || tempDevC != null)
         MetricRow(
           LucideIcons.thermometer,
           C.orange,
           l?.healthRowSkinTemp ?? 'Skin temperature',
-          tempDevShown != null
-              ? '${tempDevShown >= 0 ? '+' : '−'}${tempDevShown.abs().toStringAsFixed(1)}'
-              : '${skinTemp.value! >= 0 ? '+' : '−'}'
-                  '${skinTemp.value!.abs().toStringAsFixed(2)}',
+          tempAbsShown != null
+              ? tempAbsShown.toStringAsFixed(1)
+              : tempDevShown != null
+                  ? '${tempDevShown >= 0 ? '+' : '−'}${tempDevShown.abs().toStringAsFixed(1)}'
+                  : '${skinTemp.value! >= 0 ? '+' : '−'}'
+                      '${skinTemp.value!.abs().toStringAsFixed(2)}',
           sub: [
-            if ((d.today['skin_temp'] as Map?)?['provisional'] == true)
+            if (skinTempMap?['provisional'] == true)
               l?.wearableProvisional ?? 'Provisional',
-            tempNight == null
-                ? (l?.healthVsOwnNights ?? 'vs your own nights')
-                : (l?.healthVsOwnNightsOn(prettyDay(tempNight, l)) ??
-                      'vs your own nights · ${prettyDay(tempNight, l)}'),
+            if (tempAbsShown != null)
+              tempDevShown != null
+                  ? (l?.healthSkinTempDeltaSub(
+                          '${tempDevShown >= 0 ? '+' : '−'}${tempDevShown.abs().toStringAsFixed(1)}',
+                          tempUnitLabel,
+                        ) ??
+                      '${tempDevShown >= 0 ? '+' : '−'}${tempDevShown.abs().toStringAsFixed(1)} $tempUnitLabel vs your usual')
+                  : (l?.healthSettledAsleepAvg ?? 'Settled asleep average')
+            else
+              tempNight == null
+                  ? (l?.healthVsOwnNights ?? 'vs your own nights')
+                  : (l?.healthVsOwnNightsOn(prettyDay(tempNight, l)) ??
+                        'vs your own nights · ${prettyDay(tempNight, l)}'),
+            if (tempAbsShown != null && tempNight != null)
+              prettyDay(tempNight, l),
           ].join(' · '),
-          unit: tempDevC != null ? (units?.tempUnit ?? '°C') : 'SD',
-          // Both this row and the wear row below it carry a FULL, written,
-          // cited spec in `metric_detail.dart` that no tap in the app opened.
-          // The number was on screen and its method was unreachable.
+          unit: (tempAbsShown != null || tempDevC != null) ? tempUnitLabel : 'SD',
           onTap: () => go(c, const MetricDetail('skin_temp')),
         ),
       if (worn != null)

@@ -97,8 +97,9 @@ double? rhrFallbackFromHistory(List<double> history) {
 
 const int rhrFallbackMinNights = 3;
 
-/// Prior nights a WHOOP 5 skin-temperature deviation needs.
-const int kSkinTempDevMinNights = 14;
+/// Prior nights a WHOOP 5 skin-temperature deviation needs (night 4 onwards,
+/// matching [skinTempZ]'s 3-prior-night cold-start gate).
+const int kSkinTempDevMinNights = 3;
 
 /// WHOOP 4's `skin_temp_raw` moves with the band's ambient channel: across the
 /// contributed nights their minute-to-minute changes correlated at about 0.95.
@@ -432,6 +433,10 @@ class DayBundleInput {
   /// shipped heuristic stays the source of truth until the HMM is validated.
   final bool useHmmStages;
 
+  /// Wear site code (`1` = wrist default, `2` = bicep, `3` = other, `0` =
+  /// ambiguous same-day site switch that must not bank or compare baselines).
+  final int wearingSite;
+
   const DayBundleInput({
     required this.date,
     required this.dayTsSec,
@@ -440,8 +445,8 @@ class DayBundleInput {
     this.dayRrMs = const [],
     required this.sleepTsSec,
     required this.sleepHr,
-    required this.sleepRrTsMs,
-    required this.sleepRrMs,
+    this.sleepRrTsMs = const [],
+    this.sleepRrMs = const [],
     required this.sleepSkinTemp,
     this.sleepEnmo = const [],
     this.enmoHistory = const [],
@@ -466,6 +471,7 @@ class DayBundleInput {
     this.sleepSource = 'auto',
     this.stepSpans = const [],
     this.useHmmStages = false,
+    this.wearingSite = 1,
   });
 
   Map<String, dynamic> toJson() => {
@@ -502,6 +508,7 @@ class DayBundleInput {
     'device_family': deviceFamily,
     'sleep_source': sleepSource,
     'use_hmm_stages': useHmmStages,
+    'wearing_site': wearingSite,
   };
 
   static DayBundleInput fromJson(Map<String, dynamic> m) {
@@ -558,6 +565,7 @@ class DayBundleInput {
       deviceFamily: m['device_family'] as String?,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
       useHmmStages: m['use_hmm_stages'] as bool? ?? false,
+      wearingSite: (m['wearing_site'] as num?)?.toInt() ?? 1,
       stepSpans: [
         for (final r in (m['step_spans'] as List? ?? const []))
           [for (final v in (r as List)) (v as num).toInt()],
@@ -1091,10 +1099,14 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // elevation's skin_temp_z is damped below 2. So an unsettled night neither
   // enters the series nor gets a z of its own. A null fraction (no settle band
   // for the family) is unmeasured, not unsettled, and passes as before.
-  final double? skinTempBanked = (skinTempSettledFrac != null &&
-          skinTempSettledFrac < kMinSettledFraction)
-      ? null
-      : skinTempNightly;
+  final bool skinTempSettledOk =
+      skinTempSettledFrac == null || skinTempSettledFrac >= kMinSettledFraction;
+  final double? skinTempBanked =
+      (!skinTempSettledOk || d.wearingSite <= 0) ? null : skinTempNightly;
+  final double? skinTempC =
+      (d.deviceFamily == 'gen5' && skinTempSettledOk && skinTempNightly != null)
+          ? _round(skinTempNightly / 100.0, 2)
+          : null;
   // STEP 2 — z-score today's nightly mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
@@ -1118,10 +1130,10 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
   // stands out. Mean against a median of means, one statistic on both sides.
   double? skinTempDevC;
   if (d.deviceFamily == 'gen5' &&
-      skinTempAdc != null &&
+      skinTempBanked != null &&
       d.skinTempAdcHistory.length >= kSkinTempDevMinNights) {
     final usual = median(d.skinTempAdcHistory);
-    if (usual != null) skinTempDevC = (skinTempAdc - usual) / 100;
+    if (usual != null) skinTempDevC = (skinTempBanked - usual) / 100;
   }
 
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────
@@ -2044,8 +2056,8 @@ Map<String, dynamic> _deriveDayBundle(Map<String, dynamic> inputJson,
       // computing from ~day 4. This is the series _attachHistory must feed back.
       // Null on an unsettled night (see `skinTempBanked`).
       'skin_temp_adc': skinTempBanked,
-      // WHOOP 5 only: °C above (+) or below (-) the user's usual night.
-      // Key only when present: no new key on every other night.
+      // WHOOP 5: exact settled nightly °C (Night 1+) and °C away from usual (Night 4+).
+      'skin_temp_c': ?skinTempC,
       if (skinTempDevC != null) 'skin_temp_dev_c': _round(skinTempDevC, 2),
       // WH-11a — the fraction of the sleep window the temp channel actually
       // covered. Emitted, NOT gated on: no floor is defensible until we have

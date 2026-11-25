@@ -1913,7 +1913,12 @@ import 'vendor_sleep.dart';
 // counts covered TIME not rows, so sparse substrates are not called unclaimed;
 // ring naps no longer bridge ring-off holes; the quiet-level repass counts
 // wearable-only days as substrate; calories absence names resting_hr.
-const int kAlgoVersion = 127;
+// 127 → 128 (gen5 skin temp settle band + exact °C + wear-site scoping):
+// gen5 nightlySkinTemp now trims cold warm-up/off-wrist samples >1.50 °C
+// (150 centi-°C) below the night median, emits exact `skin_temp_c` from Night 1
+// and `skin_temp_dev_c` from Night 4 (3 prior nights), and scopes `skin_temp_adc`
+// baselines by wear site (Wrist vs Bicep).
+const int kAlgoVersion = 128;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2616,9 +2621,29 @@ class _DeriveScope {
 /// One (date, value) sample of a baseline series.
 typedef _DatedValue = ({String date, double value});
 
+@visibleForTesting
+List<double> filterSkinTempHistoryByWearSite(
+  List<({String date, double value})> series, {
+  required Map<String, int> sites,
+  required int wearingSite,
+  int maxDays = _baselineWindowDays,
+}) {
+  if (wearingSite <= 0) return const [];
+  final filtered = <double>[
+    for (final v in series)
+      if ((sites[v.date] ?? Wearing.wrist) == wearingSite) v.value,
+  ];
+  return filtered.length <= maxDays
+      ? filtered
+      : filtered.sublist(filtered.length - maxDays);
+}
+
 class _BaselineHistoryCache {
-  _BaselineHistoryCache(this._series, [this._families = const {}])
-      : _prefixMax = {
+  _BaselineHistoryCache(
+    this._series, [
+    this._families = const {},
+    this._skinTempSites = const {},
+  ]) : _prefixMax = {
           for (final entry in _series.entries)
             entry.key: _buildPrefixMax(entry.value),
         };
@@ -2664,7 +2689,23 @@ class _BaselineHistoryCache {
   /// foreign (unknown is not a seam), and a band-only history has nothing to
   /// exclude, so it reads exactly as before.
   final Map<String, Map<String, String>> _families;
+  final Map<String, int> _skinTempSites;
   final Map<String, List<_DatedValue>> _byFamily = {};
+
+  List<double> skinTempAdcBefore(
+    String beforeDate, {
+    required String? family,
+    required int wearingSite,
+  }) {
+    final series = _seriesFor('skin_temp_adc', family);
+    final end = _beforeIndex(series, beforeDate);
+    if (end <= 0) return const [];
+    return filterSkinTempHistoryByWearSite(
+      series.sublist(0, end),
+      sites: _skinTempSites,
+      wearingSite: wearingSite,
+    );
+  }
 
   /// The wearable's and the band's newest rows, read once per pass (this
   /// cache lives exactly one pass) for [_agingEdgeFor]: the wearable read
@@ -2841,9 +2882,16 @@ class _BaselineHistoryCache {
         families['skin_temp_adc']![d] = f!;
       }
     }
-    return _BaselineHistoryCache({
-      for (var i = 0; i < keys.length; i++) keys[i]: loaded[i],
-    }, families);
+    final skinTempSites = <String, int>{
+      for (final r in await LocalDb.metricSeries('skin_temp_site'))
+        if (r['date'] is String && r['value'] is num)
+          r['date'] as String: (r['value'] as num).toInt(),
+    };
+    return _BaselineHistoryCache(
+      {for (var i = 0; i < keys.length; i++) keys[i]: loaded[i]},
+      families,
+      skinTempSites,
+    );
   }
 
   /// The trailing [_baselineWindowDays] values for [key], oldest→newest.
@@ -7022,6 +7070,7 @@ class DerivationEngine {
       // forced window.
       sleepSource: day.sleepSource,
       useHmmStages: day.useHmmStages,
+      wearingSite: counterWearing,
     );
     final withHistory = _attachHistory(input, history);
 
@@ -7878,6 +7927,8 @@ class DerivationEngine {
         // EVERY day (even during the bootstrap window where skin_temp_z is null)
         // so the baseline fills and z begins computing from ~day 4.
         'skin_temp_adc': sc('skin_temp_adc'),
+        'skin_temp_c': sc('skin_temp_c'),
+        'skin_temp_site': counterWearing > 0 ? counterWearing.toDouble() : null,
         // The night's stable-core ENMO median, only for HMM-restaged nights
         // (null otherwise -> no series row, history fills from HMM nights).
         if (((bundle['sleep'] as Map?)?['stager_enmo_median'] as num?)?.toDouble() case final v?)
@@ -8503,10 +8554,13 @@ class DerivationEngine {
     // baseline so its center matches today's headline RMSSD (same metric).
     m['rmssd_history'] = before('rmssd');
     // BASELINE for skin_temp_z is the RAW nightly ADC-mean series (`skin_temp_adc`),
-    // NOT the z-score series. Feeding z-scores back as the baseline was a unit
-    // mismatch that left z permanently null. The raw mean is stored every day so
-    // this series fills and z starts computing once ≥3 days exist.
-    m['skin_temp_adc_history'] = before('skin_temp_adc');
+    // NOT the z-score series, scoped by wear site (Wrist vs Bicep) so upper-arm
+    // and wrist temperatures never pollute each other's baseline.
+    m['skin_temp_adc_history'] = history.skinTempAdcBefore(
+      date,
+      family: _baselineFamily('skin_temp_adc', input.deviceFamily),
+      wearingSite: input.wearingSite,
+    );
     // Per-night stable-core ENMO medians (written only for HMM-staged nights).
     m['enmo_history'] = before('enmo_median_night');
     // TS-03/TS-04 — the observed ceiling this day's ZONES are banded on. A max,

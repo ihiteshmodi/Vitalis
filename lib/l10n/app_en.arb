@@ -18469,5 +18469,15 @@
   "batteryHistoryNeedSpan": "Drain rate appears after 2 hours off the charger",
   "@batteryHistoryNeedSpan": {"description": "Status line when the current off-charger run is still shorter than 2 hours."},
   "batteryHistoryChargeMarksFootnote": "Dotted lines mark when the band went on the charger.",
-  "@batteryHistoryChargeMarksFootnote": {"description": "Footnote explaining dotted vertical charge markers on the battery chart."}
+  "@batteryHistoryChargeMarksFootnote": {"description": "Footnote explaining dotted vertical charge markers on the battery chart."},
+  "healthSettledAsleepAvg": "Settled asleep average",
+  "@healthSettledAsleepAvg": {"description": "Subtitle on Vitals skin temperature row when showing exact nightly °C/°F before 3 prior nights exist."},
+  "healthSkinTempDeltaSub": "{delta} {unit} vs your usual",
+  "@healthSkinTempDeltaSub": {
+    "description": "Subtitle on Vitals skin temperature row showing signed deviation from usual alongside exact °C/°F.",
+    "placeholders": {
+      "delta": {"type": "String"},
+      "unit": {"type": "String"}
+    }
+  }
 }

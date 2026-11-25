@@ -1232,8 +1232,17 @@ void main() {
       expect(m.value!.mean, closeTo(830.0, 1e-9));
     });
 
-    test('gen5 has no measured band and unknown families refuse', () {
-      for (final id in <String?>['gen5', null, '', 'gen6']) {
+    test('gen5 uses its measured 150 centi-C band and unknown families refuse',
+        () {
+      final g5 = nightlySkinTemp(
+        [for (var i = 0; i < 600; i++) AdcSample(i * 1000.0, 3340.0)],
+        deviceFamily: 'gen5',
+      );
+      expect(g5.present, isTrue, reason: g5.note);
+      expect(g5.value!.unit, 'centi_c');
+      expect(g5.value!.mean, closeTo(3340.0, 1e-9));
+
+      for (final id in <String?>[null, '', 'gen6']) {
         final m = nightlySkinTemp(night(coldSec: 0), deviceFamily: id);
         expect(m.present, isFalse, reason: 'family $id must not borrow gen4');
         expect(m.note, startsWith('unknown_device_family:'));

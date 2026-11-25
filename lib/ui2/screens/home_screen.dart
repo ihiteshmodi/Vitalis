@@ -734,6 +734,8 @@ String metricValue(String unit, num? value) {
       return v.round().toString();
     case 'br/min':
     case '°':
+    case '°C':
+    case '°F':
       return displayFixed(v, 1);
   }
   if (v.abs() >= 100) return v.round().toString();

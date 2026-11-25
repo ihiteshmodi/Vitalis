@@ -410,16 +410,13 @@ const _specs = <String, MetricSpec>{
     requires: {InputSignal.accel1Hz},
   ),
 
-  // ── charted nowhere, on purpose ──
   'skin_temp': MetricSpec(
     chartKey: 'skin_temp',
     title: 'Skin temperature',
+    unit: '°C',
     color: C.orange,
     icon: LucideIcons.thermometer,
     higherBetter: false,
-    suppress: 'A deviation, not a temperature. Imported nights carry different '
-              'units, so they are not charted together.',
-    suppressFix: 'Shown tonight on Vitals',
     method: 'The night\'s mean raw sensor reading, expressed as distance from '
         'your own recent nights. The charted trend is that uncalibrated ADC '
         'distance, with no conversion to degrees. (A WHOOP 5 reads in real '
@@ -532,6 +529,10 @@ class MetricData {
   /// usual range the chart draws, the same band the recovery breakdown draws.
   final Map<String, dynamic>? baselines;
 
+  /// Optional chart unit resolved dynamically by `getChart` (e.g. `'°C'` vs `'SD'`
+  /// for `skin_temp`).
+  final String? unitOverride;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -545,6 +546,7 @@ class MetricData {
     this.sources = const [],
     this.viewingDeviceId,
     this.baselines,
+    this.unitOverride,
   });
 
   static Future<MetricData> load(
@@ -608,6 +610,7 @@ class MetricData {
       sources: _deviceOptions(candidates, coverage),
       // viewingDeviceId stays null: see the field's doc.
       baselines: baselines,
+      unitOverride: chart['unit'] as String?,
     );
   }
 }
@@ -931,10 +934,32 @@ class _MetricDetailState extends State<MetricDetail> {
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final spec = specOf(widget.metricKey);
+    final rawSpec = specOf(widget.metricKey);
     final d = _d ?? const MetricData();
+    final units = unitsOf(c);
+    final convertTempF = d.unitOverride == '°C' && units?.isImperial == true;
+    final resolvedUnit = d.unitOverride == '°C'
+        ? (units?.tempUnit ?? '°C')
+        : (d.unitOverride ?? rawSpec.unit);
+    final spec = resolvedUnit == rawSpec.unit
+        ? rawSpec
+        : MetricSpec(
+            chartKey: rawSpec.chartKey,
+            title: rawSpec.title,
+            unit: resolvedUnit,
+            color: rawSpec.color,
+            icon: rawSpec.icon,
+            higherBetter: rawSpec.higherBetter,
+            suppress: rawSpec.suppress,
+            suppressFix: rawSpec.suppressFix,
+            method: rawSpec.method,
+            citation: rawSpec.citation,
+            requires: rawSpec.requires,
+          );
 
-    final all = d.series;
+    final all = convertTempF
+        ? [for (final pt in d.series) (t: pt.t, v: units!.tempValue(pt.v))]
+        : d.series;
     final win = _windows[_range.clamp(0, _offered(d) - 1)];
     // Dense: one slot per calendar day in the window, `null` where no day
     // derived. The painter breaks the line at a null rather than joining over

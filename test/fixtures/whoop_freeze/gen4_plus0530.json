@@ -2,7 +2,7 @@
  "day_result": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "date": "2026-07-13",
     "day_confidence": 0.6,
@@ -25947,7 +25947,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "date": "2026-07-14",
     "day_confidence": 0.6,
@@ -51571,7 +51571,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "date": "2026-07-15",
     "day_confidence": 0.6,
@@ -73334,7 +73334,7 @@
      "quiet_hrr": 0.18057477316419124,
      "trimp_net": null,
      "calories_total": 2151.991671845124,
-     "dyn_p90": 0.0166173604770428,
+     "dyn_p90": 0.016617360477042792,
      "nap_min": 0.0,
      "hrr_bpm": 18.0
     },
@@ -75796,7 +75796,7 @@
    "readiness": 66.1155535435143,
    "skipped": 0,
    "partial": 0,
-   "payload_sha256": "70745ee49a28eb6a513dd086cac483e9c71d72c83fcaaa069da0e5a8c356203e"
+   "payload_sha256": "9626321aa9fc5fda72cfe3c6f8249d7192af5e0761b21da2c7f5c25776536aa6"
   }
  ],
  "metric_series": [
@@ -75952,7 +75952,17 @@
   },
   {
    "date": "2026-07-13",
+   "key": "skin_temp_c",
+   "value": null
+  },
+  {
+   "date": "2026-07-13",
    "key": "skin_temp_coverage_frac",
+   "value": 1.0
+  },
+  {
+   "date": "2026-07-13",
+   "key": "skin_temp_site",
    "value": 1.0
   },
   {
@@ -76162,7 +76172,17 @@
   },
   {
    "date": "2026-07-14",
+   "key": "skin_temp_c",
+   "value": null
+  },
+  {
+   "date": "2026-07-14",
    "key": "skin_temp_coverage_frac",
+   "value": 1.0
+  },
+  {
+   "date": "2026-07-14",
+   "key": "skin_temp_site",
    "value": 1.0
   },
   {
@@ -76258,7 +76278,7 @@
   {
    "date": "2026-07-15",
    "key": "dyn_p90",
-   "value": 0.0166173604770428
+   "value": 0.016617360477042792
   },
   {
    "date": "2026-07-15",
@@ -76372,7 +76392,17 @@
   },
   {
    "date": "2026-07-15",
+   "key": "skin_temp_c",
+   "value": null
+  },
+  {
+   "date": "2026-07-15",
    "key": "skin_temp_coverage_frac",
+   "value": 1.0
+  },
+  {
+   "date": "2026-07-15",
+   "key": "skin_temp_site",
    "value": 1.0
   },
   {
@@ -76434,7 +76464,7 @@
  "metric_series_version": [
   {
    "date": "2026-07-13",
-   "algo_version": 127,
+   "algo_version": 128,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -76442,7 +76472,7 @@
   },
   {
    "date": "2026-07-14",
-   "algo_version": 127,
+   "algo_version": 128,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -76450,7 +76480,7 @@
   },
   {
    "date": "2026-07-15",
-   "algo_version": 127,
+   "algo_version": 128,
    "source": "band",
    "device_family": "gen4",
    "coverage_devices": "",
@@ -76460,7 +76490,7 @@
  "wake_day_features": [
   {
    "day_id": "2026-07-13",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "day_id": "2026-07-13",
     "active_min": 90,
@@ -77668,7 +77698,7 @@
   },
   {
    "day_id": "2026-07-14",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "day_id": "2026-07-14",
     "active_min": 240,
@@ -78876,7 +78906,7 @@
   },
   {
    "day_id": "2026-07-15",
-   "algo_version": 127,
+   "algo_version": 128,
    "payload_json": {
     "day_id": "2026-07-15",
     "active_min": 40,

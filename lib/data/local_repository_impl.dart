@@ -918,7 +918,9 @@ class LocalRepositoryImpl extends LocalRepository {
   /// instead of a bare "—" (skin-temp z needs ≥3 nights of ADC baseline).
   Future<Map<String, dynamic>> _skinTempBlock(Map<String, dynamic> b) async {
     final z = _scalar(b, 'skin_temp_z');
-    if (z != null) {
+    final absC = _scalar(b, 'skin_temp_c');
+    final devC = _scalar(b, 'skin_temp_dev_c');
+    if (z != null || absC != null) {
       // The ENVELOPE, not a bare `{'value': z}`. `Metric.isEmpty` is
       // `value == null || confidence <= 0`, so a block with no confidence read
       // as ABSENT on every consumer: the Vitals row printed a real deviation
@@ -935,15 +937,17 @@ class LocalRepositoryImpl extends LocalRepository {
         // A ring's deviation rests on a settle band not yet measured on one:
         // the row says so rather than read as a settled figure.
         if (env?['provisional'] == true) 'provisional': true,
-        // WHOOP 5: the same night in °C away from the usual one.
-        'dev_c': ?_scalar(b, 'skin_temp_dev_c'),
+        // WHOOP 5: exact settled nightly °C plus °C away from the usual night.
+        'abs_c': ?absC,
+        'dev_c': ?devC,
       };
     }
     final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
     return {
       'value': null,
       'note': 'need_baseline:have=$have,need=3',
-      'dev_c': ?_scalar(b, 'skin_temp_dev_c'),
+      'abs_c': ?absC,
+      'dev_c': ?devC,
     };
   }
 
@@ -2163,7 +2167,19 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
       };
     }
-    final key = _trendKey(metric);
+    var key = _trendKey(metric);
+    String? chartUnit;
+    if (metric == 'skin_temp') {
+      final cRows = await LocalDb.withReadExecutor(
+        (db) => LocalDb.metricSeries('skin_temp_c', executor: db),
+      );
+      if (cRows.isNotEmpty) {
+        key = 'skin_temp_c';
+        chartUnit = '°C';
+      } else {
+        chartUnit = 'SD';
+      }
+    }
     // A wearable's estimate is not drawn as a measured point, as on the
     // native cards ([withoutWearableEstimates]).
     final notOurs = await LocalDb.withReadExecutor(
@@ -2227,6 +2243,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final oldestDaySec = dates.isEmpty ? _nowSec() : _dateToEpoch(dates.first);
 
     return {
+      'unit': ?chartUnit,
       'points': [
         for (final d in dates)
           if (d != heldDay || d == pin?.day)

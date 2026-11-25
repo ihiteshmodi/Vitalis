@@ -108,13 +108,12 @@ const Map<String, _TempCal> _tempCal = {
   // keeps 78.7 %. The band is ~6× the 6.47-count between-night SD and ~1.4× the
   // 29.3-count corpus-wide circadian range, so ordinary rhythm survives it.
   'gen4': _TempCal('adc_counts', 0.10, 40.0),
-  // gen5 has NO measured band. The exports carry 106 (W5) and 933 (MG) non-zero
-  // skin-temp rows in total — not one night clears the 60-sample floor — so
-  // there is nothing to calibrate against. Scaling gen4's 40 counts by a
-  // counts-per-°C guess would be gen4's number wearing a gen5 badge, which is
-  // exactly what device.dart's contract forbids. Fill this in from gen5 nights,
-  // not from arithmetic.
-  'gen5': _TempCal('centi_c', 0.04, null),
+  // gen5's 150 centi-°C (1.50 °C): measured across 3 complete WHOOP 5.0 nights
+  // (82,079 1 Hz sleep-window samples, 2026-10-11..13; medians 33.25–33.61 °C,
+  // between-night SD 0.175 °C). Every clean night keeps 100.0 % of samples
+  // above (night median − 150), ~8.5× the between-night SD, while trimming cold
+  // strap warm-up / off-wrist segments >1.5 °C below the night median.
+  'gen5': _TempCal('centi_c', 0.04, 150.0),
   // The rings (Ultrahuman, Colmi, Oura): finger skin temperature in centi-°C,
   // one reading per 5-minute record (Colmi: per 30-minute slot; Oura: per
   // temperature event), no accelerometer beside it. PROVISIONAL, set on synthetic nights because no real ring
